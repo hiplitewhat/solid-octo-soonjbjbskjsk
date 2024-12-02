@@ -1,0 +1,13 @@
+name = "orange-sun-28db"  # Name of your Cloudflare Worker
+type = "javascript"  # Type of Worker (JavaScript)
+
+# Cloudflare account information
+account_id = "4806f2425c6560e67d083f843b83dd5d"  # Replace with your actual Cloudflare account ID
+workers_dev = true  # Set to true to deploy to workers.dev (default behavior)
+compatibility_date = "2024-12-02"  # Current date
+
+# Optional: If using a custom domain for production
+[env.production]
+name = "orange-sun-28db-prod"  # Name for the production environment (optional)
+route = "https://your-domain.com/*"  # Custom domain for the production environment (optional)
+zone_id = "your-zone-id"  # Cloudflare Zone ID for the domain (optional)

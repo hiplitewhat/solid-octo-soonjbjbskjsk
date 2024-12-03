@@ -8,7 +8,7 @@ compatibility_date = "2024-12-02"  # Current date
 
 # KV Namespace binding
 kv_namespaces = [
-  { binding = "MY_KV_NAMESPACE", id = "your_kv_namespace_id" }  # Replace with your actual KV namespace ID
+  { binding = "MY_KV_NAMESPACE", id = "2fc1c9cc83b64bd29f30be0ab34599a4" }  # Replace with your actual KV namespace ID
 ]
 
 # Optional: If using a custom domain for production

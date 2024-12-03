@@ -33,5 +33,5 @@ loadstring("\108\111\99\97\108\32\112\108\97\121\101\114\32\61\32\103\97\109\101
   // Respond with the Roblox Lua script
   return new Response(robloxScript, {
     headers: { 'Content-Type': 'text/plain' }
-  })
+  });
 }

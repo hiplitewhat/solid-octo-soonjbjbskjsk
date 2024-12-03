@@ -43,7 +43,7 @@ async function handleRequest(request) {
       </head>
       <body>
         <h1>Access Denied</h1>
-        <p>Your User-Agent is not allowed to access this resource.</p>
+        <p>Your is not allowed to access this resource.</p>
       </body>
       </html>
     `;

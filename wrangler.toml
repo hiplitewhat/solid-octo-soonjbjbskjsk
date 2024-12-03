@@ -1,4 +1,4 @@
-name = "orange-sun-28db"  # Name of your Cloudflare Worker
+name = "autumn-boat-dd1e"  # Name of your Cloudflare Worker
 type = "javascript"  # Type of Worker (JavaScript)
 
 # Cloudflare account information
@@ -8,6 +8,6 @@ compatibility_date = "2024-12-02"  # Current date
 
 # Optional: If using a custom domain for production
 [env.production]
-name = "orange-sun-28db-prod"  # Name for the production environment (optional)
+name = "autumn-boat-dd1e"  # Name for the production environment (optional)
 route = "https://your-domain.com/*"  # Custom domain for the production environment (optional)
 zone_id = "your-zone-id"  # Cloudflare Zone ID for the domain (optional)

@@ -6,8 +6,13 @@ account_id = "4806f2425c6560e67d083f843b83dd5d"  # Replace with your actual Clou
 workers_dev = true  # Set to true to deploy to workers.dev (default behavior)
 compatibility_date = "2024-12-02"  # Current date
 
+# KV Namespace binding
+kv_namespaces = [
+  { binding = "MY_KV_NAMESPACE", id = "your_kv_namespace_id" }  # Replace with your actual KV namespace ID
+]
+
 # Optional: If using a custom domain for production
 [env.production]
-name = "autumn-boat-dd1e"  # Name for the production environment (optional)
+name = "autumn-boat-dd1e-prod"  # Name for the production environment (optional)
 route = "https://your-domain.com/*"  # Custom domain for the production environment (optional)
 zone_id = "your-zone-id"  # Cloudflare Zone ID for the domain (optional)

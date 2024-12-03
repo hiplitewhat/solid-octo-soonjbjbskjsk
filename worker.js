@@ -21,7 +21,7 @@ async function handleRequest(request) {
   const allowedUserAgent = 'Roblox/WinInet'
 
   if (!userAgent || !userAgent.includes(allowedUserAgent)) {
-    return new Response('Forbidden: Invalid User-Agent', { status: 403 })
+    return new Response('key needed', { status: 403 })
   }
 
   // Basic Roblox Lua Script

@@ -24,18 +24,20 @@ async function handleRequest(request) {
     return new Response('Forbidden: Invalid User-Agent', { status: 403 })
   }
 
-  // If User-Agent is valid, proceed to return a script
-  // You could also modify this part to use query parameters or dynamic scripts
-  const yourScript = `
-    print("Hello from the Cloudflare Worker!")
-    -- Example Lua script
-    -- Add more Lua code here
-  `
+  // Basic Roblox Lua Script
+  const robloxScript = `
+-- Roblox Lua Script
+print("Hello from Roblox Script!")
 
-  return new Response(JSON.stringify({
-    message: 'Script received and validated',
-    script: yourScript
-  }), {
-    headers: { 'Content-Type': 'application/json' }
+local part = Instance.new("Part")  -- Create a new part
+part.Size = Vector3.new(4, 1, 2)   -- Set size of the part
+part.Position = Vector3.new(0, 10, 0)  -- Set position of the part
+part.Anchored = true  -- Anchor the part to prevent it from falling
+part.Parent = game.Workspace  -- Add the part to the game workspace
+`
+
+  // Respond with the Roblox Lua script
+  return new Response(robloxScript, {
+    headers: { 'Content-Type': 'text/plain' }
   })
 }

@@ -18,7 +18,7 @@ async function handleRequest(request) {
   const userAgent = request.headers.get('User-Agent')
 
   // Only accept requests with a specific User-Agent (e.g., 'curl')
-  const allowedUserAgent = 'curl'
+  const allowedUserAgent = 'Roblox/WinInet'
 
   if (!userAgent || !userAgent.includes(allowedUserAgent)) {
     return new Response('Forbidden: Invalid User-Agent', { status: 403 })

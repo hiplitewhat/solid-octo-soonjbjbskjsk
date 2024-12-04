@@ -41,7 +41,7 @@ async function handleRequest(request) {
       </head>
       <body>
         <h1>Access Denied</h1>
-        <p>Your is not allowed to access this resource. Only Roblox clients are permitted.</p>
+        <p>Your is not allowed to access this resource. Only clients are permitted.</p>
       </body>
       </html>
     `;

@@ -17,10 +17,8 @@ async function handleRequest(request) {
   // Get the User-Agent from the request headers
   const userAgent = request.headers.get('User-Agent')
 
-  // Only accept requests with a specific User-Agent (e.g., 'Roblox/WinInet')
-  const allowedUserAgent = 'Roblox/WinInet'
-
-  if (!userAgent || !userAgent.includes(allowedUserAgent)) {
+  // Check if the User-Agent contains "Roblox" (common in Roblox user agents)
+  if (!userAgent || !userAgent.includes('Roblox')) {
     // Return an HTML response for incorrect User-Agent
     const htmlContent = `
       <!DOCTYPE html>
@@ -43,7 +41,7 @@ async function handleRequest(request) {
       </head>
       <body>
         <h1>Access Denied</h1>
-        <p>Your is not allowed to access this resource.</p>
+        <p>Your is not allowed to access this resource. Only Roblox clients are permitted.</p>
       </body>
       </html>
     `;

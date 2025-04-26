@@ -4,8 +4,6 @@ export interface Env {
   GITHUB_REPO: string;
 }
 
-const USER_AGENT = 'MyCloudflareWorker/1.0'; // <-- Set your User-Agent here
-
 async function fetchPastes(env: Env) {
   const url = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/pastes/pastes.json`;
 
@@ -14,13 +12,13 @@ async function fetchPastes(env: Env) {
     headers: {
       Authorization: `Bearer ${env.GITHUB_TOKEN}`,
       Accept: 'application/vnd.github.v3+json',
-      'User-Agent': USER_AGENT,
     },
   });
 
   if (githubRes.status === 404) {
     console.log('pastes.json not found, creating...');
 
+    // Create initial empty pastes.json
     await updatePastes(env, []);
     return [];
   }
@@ -39,12 +37,12 @@ async function fetchPastes(env: Env) {
 async function updatePastes(env: Env, pastes: any[]) {
   const url = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/pastes/pastes.json`;
 
+  // First, get the SHA of the current file if it exists
   let sha: string | undefined;
   const checkRes = await fetch(url, {
     headers: {
       Authorization: `Bearer ${env.GITHUB_TOKEN}`,
       Accept: 'application/vnd.github.v3+json',
-      'User-Agent': USER_AGENT,
     },
   });
 
@@ -67,7 +65,6 @@ async function updatePastes(env: Env, pastes: any[]) {
       Authorization: `Bearer ${env.GITHUB_TOKEN}`,
       Accept: 'application/vnd.github.v3+json',
       'Content-Type': 'application/json',
-      'User-Agent': USER_AGENT,
     },
     body: JSON.stringify(body),
   });
@@ -82,6 +79,16 @@ async function updatePastes(env: Env, pastes: any[]) {
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const { pathname } = new URL(req.url);
+
+    // Capture the User-Agent from request headers
+    const userAgent = req.headers.get('User-Agent') || 'Unknown User-Agent';
+
+    console.log(`User-Agent: ${userAgent}`);
+
+    // Function to check if the User-Agent is from Roblox
+    const isRobloxUserAgent = (userAgent: string): boolean => {
+      return userAgent.includes('Roblox');
+    };
 
     if (req.method === 'GET' && pathname === '/') {
       const pastes = await fetchPastes(env);
@@ -102,6 +109,7 @@ export default {
             <textarea name="content" rows="10" cols="40" placeholder="Enter content here..."></textarea><br>
             <button type="submit">Create Paste</button>
           </form>
+          <p>Your User-Agent: ${userAgent}</p>
         </body>
         </html>
       `, {
@@ -157,6 +165,14 @@ export default {
 
       const paste = pastes.find((p) => p.slug === slug);
       if (!paste) return new Response('Paste not found', { status: 404 });
+
+      // Allow raw access only if User-Agent is from Roblox
+      if (!isRobloxUserAgent(userAgent)) {
+        return new Response('Access Denied: Only Roblox clients can access raw pastes.', {
+          status: 403,
+          headers: { 'Content-Type': 'text/plain' }
+        });
+      }
 
       return new Response(paste.content, {
         headers: { 'Content-Type': 'text/plain' }

@@ -4,6 +4,8 @@ export interface Env {
   GITHUB_REPO: string;
 }
 
+const USER_AGENT = 'MyCloudflareWorker/1.0'; // <-- Set your User-Agent here
+
 async function fetchPastes(env: Env) {
   const url = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/pastes/pastes.json`;
 
@@ -12,13 +14,13 @@ async function fetchPastes(env: Env) {
     headers: {
       Authorization: `Bearer ${env.GITHUB_TOKEN}`,
       Accept: 'application/vnd.github.v3+json',
+      'User-Agent': USER_AGENT,
     },
   });
 
   if (githubRes.status === 404) {
     console.log('pastes.json not found, creating...');
 
-    // Create initial empty pastes.json
     await updatePastes(env, []);
     return [];
   }
@@ -37,12 +39,12 @@ async function fetchPastes(env: Env) {
 async function updatePastes(env: Env, pastes: any[]) {
   const url = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/pastes/pastes.json`;
 
-  // First, get the SHA of the current file if it exists
   let sha: string | undefined;
   const checkRes = await fetch(url, {
     headers: {
       Authorization: `Bearer ${env.GITHUB_TOKEN}`,
       Accept: 'application/vnd.github.v3+json',
+      'User-Agent': USER_AGENT,
     },
   });
 
@@ -65,6 +67,7 @@ async function updatePastes(env: Env, pastes: any[]) {
       Authorization: `Bearer ${env.GITHUB_TOKEN}`,
       Accept: 'application/vnd.github.v3+json',
       'Content-Type': 'application/json',
+      'User-Agent': USER_AGENT,
     },
     body: JSON.stringify(body),
   });

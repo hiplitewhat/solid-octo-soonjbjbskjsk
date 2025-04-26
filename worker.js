@@ -1,67 +1,75 @@
-addEventListener('fetch', event => {
-  event.respondWith(handleRequest(event.request))
-})
 
-async function handleRequest(request) {
-  // Only handle requests to the root ('/') route
-  const url = new URL(request.url)
-  if (url.pathname !== '/') {
-    return new Response('Not Found', { status: 404 })
-  }
-
-  // Check if the request method is GET
-  if (request.method !== 'GET') {
-    return new Response('Method Not Allowed', { status: 405 })
-  }
-
-  // Get the User-Agent from the request headers
-  const userAgent = request.headers.get('User-Agent')
-
-  // Check if the User-Agent contains "Roblox" (common in Roblox user agents)
-  if (!userAgent || !userAgent.includes('Roblox')) {
-    // Return an HTML response for incorrect User-Agent
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Access Denied</title>
-        <style>
-          body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            margin-top: 50px;
-            color: #333;
-          }
-          h1 {
-            color: #e74c3c;
-          }
-        </style>
-      </head>
-      <body>
-        <h1>Access Denied</h1>
-        <p>Your is not allowed to access this resource. Only clients are permitted.</p>
-      </body>
-      </html>
-    `;
-    return new Response(htmlContent, {
-      headers: { 'Content-Type': 'text/html' },
-      status: 403
-    });
-  }
-
-  // Basic Roblox Lua Script
-  const robloxScript = `
--- Roblox Lua Script
---[[
-  WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!
-]]
-loadstring(game:HttpGet("https://pastes.io/raw/djjdjd-570"))()
-`;
-
-  // Respond with the Roblox Lua script
-  return new Response(robloxScript, {
-    headers: { 'Content-Type': 'text/plain' }
-  });
+export interface Env {
+  PASTECODE_API_TOKEN: string;
 }
+
+export default {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const { pathname } = new URL(req.url);
+
+    // Handle GET requests for the homepage
+    if (req.method === 'GET' && pathname === '/') {
+      return new Response(
+        `
+        <!DOCTYPE html>
+        <html>
+        <head><title>Create Paste</title></head>
+        <body>
+          <h1>Create a Paste</h1>
+          <form method="POST" action="/api/paste">
+            <textarea name="content" rows="10" cols="40" placeholder="Enter content here..."></textarea><br>
+            <button type="submit">Create Paste</button>
+          </form>
+        </body>
+        </html>
+        `,
+        { headers: { 'Content-Type': 'text/html' } }
+      );
+    }
+
+    // Handle POST requests for creating a paste
+    if (req.method === 'POST' && pathname === '/api/paste') {
+      try {
+        const formData = await req.formData();
+        const content = formData.get('content')?.toString();
+
+        const API_TOKEN = env.PASTECODE_API_TOKEN;
+        if (!API_TOKEN || !content) {
+          return new Response('Missing API token or content', { status: 400 });
+        }
+
+        const pasteData = {
+          title: 'New Paste from Cloudflare Worker',
+          exposure: 'public',
+          expiration: 'never',
+          pasteFiles: [{ syntax: 'plaintext', code: content }],
+        };
+
+        const response = await fetch('https://pastecode.dev/api/pastes', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${API_TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(pasteData),
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          return new Response(
+            `<p>Paste created: <a href="${data.url}">${data.url}</a></p>`,
+            { headers: { 'Content-Type': 'text/html' } }
+          );
+        } else {
+          return new Response(`Error: ${data.message || 'Paste creation failed'}`, { status: 500 });
+        }
+      } catch (err: any) {
+        return new Response(`Unexpected error: ${err.message || err}`, { status: 500 });
+      }
+    }
+
+    return new Response('Not Found', { status: 404 });
+  }
+};

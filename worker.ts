@@ -1,182 +1,82 @@
 
-export interface Env {
-  GITHUB_TOKEN: string;
-  GITHUB_REPO: string;
-}
-
-async function fetchPastes(env: Env) {
-  const url = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/pastes/pastes.json`;
-
-  const githubRes = await fetch(url, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-      Accept: 'application/vnd.github.v3+json',
-    },
-  });
-
-  if (githubRes.status === 404) {
-    console.log('pastes.json not found, creating...');
-
-    // Create initial empty pastes.json
-    await updatePastes(env, []);
-    return [];
-  }
-
-  if (!githubRes.ok) {
-    const errorText = await githubRes.text();
-    console.log('GitHub fetch error:', errorText);
-    throw new Error('Failed to fetch pastes.json');
-  }
-
-  const data = await githubRes.json();
-  const content = atob(data.content);
-  return JSON.parse(content);
-}
-
-async function updatePastes(env: Env, pastes: any[]) {
-  const url = `https://api.github.com/repos/${env.GITHUB_REPO}/contents/pastes/pastes.json`;
-
-  // First, get the SHA of the current file if it exists
-  let sha: string | undefined;
-  const checkRes = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-      Accept: 'application/vnd.github.v3+json',
-    },
-  });
-
-  if (checkRes.ok) {
-    const checkData = await checkRes.json();
-    sha = checkData.sha;
-  }
-
-  const content = btoa(JSON.stringify(pastes, null, 2));
-
-  const body = {
-    message: 'Update pastes.json',
-    content,
-    sha,
-  };
-
-  const githubRes = await fetch(url, {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-      Accept: 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!githubRes.ok) {
-    const errorText = await githubRes.text();
-    console.log('GitHub update error:', errorText);
-    throw new Error('Failed to update pastes.json');
-  }
-}
-
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const { pathname } = new URL(req.url);
 
-    // Capture the User-Agent from request headers
-    const userAgent = req.headers.get('User-Agent') || 'Unknown User-Agent';
+    // POST request to create a paste and update pastes.json on GitHub
+    if (req.method === 'POST' && pathname === '/api/add-paste') {
+      try {
+        const formData = await req.formData();
+        const title = formData.get('title')?.toString();
+        const scriptUrl = formData.get('scriptUrl')?.toString();
 
-    console.log(`User-Agent: ${userAgent}`);
+        if (!title || !scriptUrl) {
+          return new Response('Title and script URL are required', { status: 400 });
+        }
 
-    // Function to check if the User-Agent is from Roblox
-    const isRobloxUserAgent = (userAgent: string): boolean => {
-      return userAgent.includes('Roblox');
-    };
+        // Access the GitHub token from the environment variable
+        const GITHUB_TOKEN = env.GITHUB_TOKEN; // Get the token from environment variables
 
-    if (req.method === 'GET' && pathname === '/') {
-      const pastes = await fetchPastes(env);
+        if (!GITHUB_TOKEN) {
+          return new Response('GitHub token is not set in the environment', { status: 500 });
+        }
 
-      const listItems = pastes.map((p) => 
-        `<li><a href="/view/${p.slug}">${p.slug}</a> - <button onclick="window.location.href='/raw/${p.slug}'">Raw</button></li>`
-      ).join('');
+        // GitHub API details
+        const GITHUB_API_URL = 'https://api.github.com/repos/youruser/yourrepo/contents/pastes.json';
 
-      return new Response(`
-        <!DOCTYPE html>
-        <html>
-        <head><title>My Pastes</title></head>
-        <body>
-          <h1>My Pastes</h1>
-          <ul>${listItems}</ul>
-          <h2>Create New Paste</h2>
-          <form method="POST" action="/api/paste">
-            <textarea name="content" rows="10" cols="40" placeholder="Enter content here..."></textarea><br>
-            <button type="submit">Create Paste</button>
-          </form>
-          <p>Your User-Agent: ${userAgent}</p>
-        </body>
-        </html>
-      `, {
-        headers: { 'Content-Type': 'text/html' }
-      });
-    }
-
-    if (req.method === 'POST' && pathname === '/api/paste') {
-      const formData = await req.formData();
-      const content = formData.get('content')?.toString();
-
-      if (!content) {
-        return new Response('Missing content', { status: 400 });
-      }
-
-      const slug = Math.random().toString(36).substring(2, 8);
-
-      const pastes = await fetchPastes(env);
-      pastes.push({ slug, content });
-      await updatePastes(env, pastes);
-
-      return new Response(`Paste created: <a href="/view/${slug}">View</a>`, {
-        headers: { 'Content-Type': 'text/html' }
-      });
-    }
-
-    if (req.method === 'GET' && pathname.startsWith('/view/')) {
-      const slug = pathname.split('/view/')[1];
-      const pastes = await fetchPastes(env);
-
-      const paste = pastes.find((p) => p.slug === slug);
-      if (!paste) return new Response('Paste not found', { status: 404 });
-
-      return new Response(`
-        <!DOCTYPE html>
-        <html>
-        <head><title>Paste ${slug}</title></head>
-        <body>
-          <h1>Paste ${slug}</h1>
-          <pre>${paste.content}</pre>
-          <p><a href="/raw/${slug}">View Raw</a></p>
-          <p><a href="/">Back to home</a></p>
-        </body>
-        </html>
-      `, {
-        headers: { 'Content-Type': 'text/html' }
-      });
-    }
-
-    if (req.method === 'GET' && pathname.startsWith('/raw/')) {
-      const slug = pathname.split('/raw/')[1];
-      const pastes = await fetchPastes(env);
-
-      const paste = pastes.find((p) => p.slug === slug);
-      if (!paste) return new Response('Paste not found', { status: 404 });
-
-      // Allow raw access only if User-Agent is from Roblox
-      if (!isRobloxUserAgent(userAgent)) {
-        return new Response('Access Denied: Only Roblox clients can access raw pastes.', {
-          status: 403,
-          headers: { 'Content-Type': 'text/plain' }
+        // Fetch current `pastes.json` from GitHub
+        const res = await fetch(GITHUB_API_URL, {
+          headers: {
+            'Authorization': `Bearer ${GITHUB_TOKEN}`,
+            'Accept': 'application/vnd.github.v3+json'
+          }
         });
-      }
 
-      return new Response(paste.content, {
-        headers: { 'Content-Type': 'text/plain' }
-      });
+        const data = await res.json();
+
+        if (!res.ok || !data.content) {
+          return new Response('Failed to fetch pastes.json', { status: 500 });
+        }
+
+        // Decode and parse pastes.json content
+        const pastes = JSON.parse(atob(data.content));
+
+        // Add new paste to pastes.json
+        const newPaste = {
+          slug: title.toLowerCase().replace(/\s+/g, '-'),
+          url: scriptUrl
+        };
+
+        pastes.push(newPaste);
+
+        // Prepare updated content to commit back to GitHub
+        const updatedContent = btoa(JSON.stringify(pastes, null, 2));
+        const updatePayload = {
+          message: `Added new paste: ${title}`,
+          content: updatedContent,
+          sha: data.sha // Required for the update
+        };
+
+        // Push the update to GitHub
+        const updateRes = await fetch(GITHUB_API_URL, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${GITHUB_TOKEN}`,
+            'Accept': 'application/vnd.github.v3+json'
+          },
+          body: JSON.stringify(updatePayload)
+        });
+
+        if (!updateRes.ok) {
+          const updateError = await updateRes.json();
+          return new Response(`Failed to update pastes.json: ${updateError.message}`, { status: 500 });
+        }
+
+        return new Response(`Successfully added new paste: ${title}`, { status: 200 });
+
+      } catch (err) {
+        return new Response(`Error: ${err.message || err}`, { status: 500 });
+      }
     }
 
     return new Response('Not Found', { status: 404 });

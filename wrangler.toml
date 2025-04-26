@@ -1,5 +1,5 @@
 name = "autumn-boat-dd1e"  # Name of your Cloudflare Worker
-type = "javascript"  # Type of Worker (JavaScript)
+type = "typescript"  # Type of Worker (JavaScript)
 
 # Cloudflare account information
 account_id = "4806f2425c6560e67d083f843b83dd5d"  # Replace with your actual Cloudflare account ID

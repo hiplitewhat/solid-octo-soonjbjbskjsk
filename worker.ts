@@ -1,86 +1,83 @@
-
 export interface Env {
-  GITHUB_TOKEN: string; // GitHub token to commit to the repo
-  REPO_OWNER: string; // GitHub repo owner
-  REPO_NAME: string; // GitHub repo name
+  GITHUB_TOKEN: string;
+  REPO_OWNER: string;
+  REPO_NAME: string;
 }
 
 export default {
-  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(req: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(req.url);
 
-    // Handle GET requests for the homepage
     if (req.method === 'GET' && pathname === '/') {
-      return new Response(
-        `
+      return new Response(`
         <!DOCTYPE html>
-        <html>
-        <head><title>Create Paste</title></head>
+        <html lang="en">
+        <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Create Paste</title></head>
         <body>
           <h1>Create a Paste</h1>
-          <form method="POST" action="/api/add-paste">
-            <label for="title">Title:</label>
-            <input type="text" id="title" name="title" required><br>
-            
-            <label for="scriptUrl">Script URL:</label>
-            <input type="text" id="scriptUrl" name="scriptUrl" required><br>
-            
-            <button type="submit">Submit</button>
+          <form method="POST" action="/api/paste">
+            <textarea name="content" rows="10" cols="40" placeholder="Enter content here..."></textarea><br>
+            <button type="submit">Create Paste</button>
           </form>
+          <h2>Pastes</h2>
+          <ul id="paste-list">
+            <!-- List of pastes will be injected here by JavaScript -->
+          </ul>
+          <script>
+            async function fetchPastes() {
+              const res = await fetch('/api/pastes');
+              const pastes = await res.json();
+              const pasteList = document.getElementById('paste-list');
+              pastes.forEach(paste => {
+                const li = document.createElement('li');
+                const a = document.createElement('a');
+                a.href = paste.url;
+                a.textContent = paste.title;
+                li.appendChild(a);
+                pasteList.appendChild(li);
+              });
+            }
+            fetchPastes();
+          </script>
         </body>
         </html>
-        `,
-        { headers: { 'Content-Type': 'text/html' } }
-      );
+      `, { headers: { 'Content-Type': 'text/html' } });
     }
 
-    // Handle POST requests for adding a new paste
-    if (req.method === 'POST' && pathname === '/api/add-paste') {
-      try {
-        const formData = await req.formData();
-        const title = formData.get('title')?.toString();
-        const scriptUrl = formData.get('scriptUrl')?.toString();
-
-        if (!title || !scriptUrl) {
-          return new Response('Title and script URL are required', { status: 400 });
-        }
-
-        // Create the paste data (you can add more details here)
-        const pasteData = {
-          title: title,
-          scriptUrl: scriptUrl,
-        };
-
-        // Save paste to GitHub
-        await saveToGitHub(pasteData, env);
-
-        // Return success response
-        return new Response(
-          `<p>Paste created: <a href="${scriptUrl}">${scriptUrl}</a></p>`,
-          { headers: { 'Content-Type': 'text/html' } }
-        );
-      } catch (err) {
-        return new Response(`Error: ${err.message || err}`, { status: 500 });
+    // Handle POST requests for creating a paste
+    if (req.method === 'POST' && pathname === '/api/paste') {
+      const formData = await req.formData();
+      const content = formData.get('content')?.toString();
+      if (!content) {
+        return new Response('Content is required', { status: 400 });
       }
+
+      // Save the paste to GitHub
+      const pasteData = { title: 'New Paste', scriptUrl: content };
+      await saveToGitHub(pasteData, env);
+
+      return new Response('Paste created successfully!', { status: 200 });
+    }
+
+    // Handle fetching the list of pastes from GitHub
+    if (req.method === 'GET' && pathname === '/api/pastes') {
+      const pastes = await fetchPastesFromGitHub(env);
+      return new Response(JSON.stringify(pastes), { headers: { 'Content-Type': 'application/json' } });
     }
 
     return new Response('Not Found', { status: 404 });
-  },
+  }
 };
 
 async function saveToGitHub(pasteData: { title: string, scriptUrl: string }, env: Env) {
   const { GITHUB_TOKEN, REPO_OWNER, REPO_NAME } = env;
-  const pasteFileName = `pastes/${pasteData.title}.json`;
+  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${pasteData.title}.json`;
 
-  // Prepare the commit payload to GitHub API
   const commitPayload = {
-    message: `Add paste: ${pasteData.title}`,
-    content: Buffer.from(JSON.stringify(pasteData)).toString('base64'),
-    branch: 'main', // You can change the branch if needed
+    message: `Create paste: ${pasteData.title}`,
+    content: encodeBase64(JSON.stringify(pasteData)),
+    branch: 'main',
   };
-
-  // GitHub API endpoint to create a file
-  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${pasteFileName}`;
 
   const response = await fetch(apiUrl, {
     method: 'PUT',
@@ -92,8 +89,33 @@ async function saveToGitHub(pasteData: { title: string, scriptUrl: string }, env
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to commit paste data: ${response.statusText}`);
+    throw new Error(`Failed to save to GitHub: ${response.statusText}`);
   }
 
   return await response.json();
+}
+
+async function fetchPastesFromGitHub(env: Env) {
+  const { GITHUB_TOKEN, REPO_OWNER, REPO_NAME } = env;
+  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/`;
+  
+  const response = await fetch(apiUrl, {
+    headers: { 'Authorization': `token ${GITHUB_TOKEN}` },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch pastes from GitHub: ${response.statusText}`);
+  }
+
+  const files = await response.json();
+  return files.map((file: any) => ({
+    title: file.name.replace('.json', ''),
+    url: file.download_url,
+  }));
+}
+
+function encodeBase64(str: string): string {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(str);
+  return btoa(String.fromCharCode(...data));
 }

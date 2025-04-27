@@ -1,7 +1,8 @@
+
 export interface Env {
-  GITHUB_TOKEN: string;
-  REPO_OWNER: string;
-  REPO_NAME: string;
+  GITHUB_TOKEN: string;  // GitHub token for authentication
+  REPO_OWNER: string;    // GitHub repository owner (your username or organization)
+  REPO_NAME: string;     // GitHub repository name
   GEMINI_API_KEY: string; // Gemini API key for content moderation
 }
 
@@ -9,7 +10,7 @@ export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(req.url);
 
-    // Handle GET request to serve the HTML form
+    // Serve the HTML form and previously submitted pastes
     if (req.method === 'GET' && pathname === '/') {
       return new Response(`
         <!DOCTYPE html>
@@ -26,20 +27,42 @@ export default {
             <!-- List of pastes will be injected here by JavaScript -->
           </ul>
           <script>
+            let pastes = [];
+
+            // Fetch pastes stored in GitHub (you'll need a server endpoint for this)
             async function fetchPastes() {
               const res = await fetch('/api/pastes');
               const pastes = await res.json();
               const pasteList = document.getElementById('paste-list');
               pastes.forEach(paste => {
                 const li = document.createElement('li');
-                const a = document.createElement('a');
-                a.href = paste.url;
-                a.textContent = paste.title;
-                li.appendChild(a);
+                const pre = document.createElement('pre');
+                pre.textContent = paste.content;
+                li.appendChild(pre);
                 pasteList.appendChild(li);
               });
             }
-            fetchPastes();
+
+            // Submit the paste form
+            document.getElementById('pasteForm').addEventListener('submit', async (e) => {
+              e.preventDefault();
+              const form = e.target;
+              const content = form.content.value;
+
+              const res = await fetch('/api/paste', {
+                method: 'POST',
+                body: new URLSearchParams({ content }),
+              });
+
+              if (res.ok) {
+                form.reset();
+                fetchPastes(); // Update the displayed pastes
+              } else {
+                alert('Failed to create paste');
+              }
+            });
+
+            fetchPastes(); // Initial load of pastes
           </script>
         </body>
         </html>
@@ -61,10 +84,11 @@ export default {
       }
 
       // Save the paste to GitHub
-      const pasteData = { title: 'New Paste', content: content };
-      await saveToGitHub(pasteData, env);
+      const pasteData = { content };
+      const fileName = `paste_${Date.now()}.txt`; // unique filename based on timestamp
+      await saveToGitHub(fileName, pasteData, env);
 
-      return new Response('Paste created successfully!', { status: 200 });
+      return new Response('Paste created and saved to GitHub!', { status: 200 });
     }
 
     // Handle fetching the list of pastes from GitHub
@@ -77,6 +101,7 @@ export default {
   }
 };
 
+// Check for bad words using Gemini API
 async function checkBadWordsWithGemini(content: string, apiKey: string): Promise<boolean> {
   const url = 'https://api.gemini.com/v1/check';
   const response = await fetch(url, {
@@ -96,12 +121,13 @@ async function checkBadWordsWithGemini(content: string, apiKey: string): Promise
   return result.isSafe; // Assuming 'isSafe' indicates whether the content is safe
 }
 
-async function saveToGitHub(pasteData: { title: string, content: string }, env: Env) {
+// Save the paste content to GitHub
+async function saveToGitHub(fileName: string, pasteData: { content: string }, env: Env) {
   const { GITHUB_TOKEN, REPO_OWNER, REPO_NAME } = env;
-  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${pasteData.title}.txt`;
+  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${fileName}`;
 
   const commitPayload = {
-    message: `Create paste: ${pasteData.title}`,
+    message: `Create paste: ${fileName}`,
     content: encodeBase64(pasteData.content),
     branch: 'main',
   };
@@ -111,27 +137,25 @@ async function saveToGitHub(pasteData: { title: string, content: string }, env: 
     headers: {
       'Authorization': `token ${GITHUB_TOKEN}`,
       'Content-Type': 'application/json',
-      'User-Agent': 'PasteApp',
+      'User-Agent': 'PasteApp/1.0', // Required by GitHub API
     },
     body: JSON.stringify(commitPayload),
   });
 
   if (!response.ok) {
-    throw new Error(`GitHub save failed: ${response.statusText}`);
+    throw new Error(`Failed to save paste to GitHub: ${response.statusText}`);
   }
 
   return await response.json();
 }
 
+// Fetch the list of pastes from GitHub repository
 async function fetchPastesFromGitHub(env: Env) {
   const { GITHUB_TOKEN, REPO_OWNER, REPO_NAME } = env;
   const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/`;
 
   const response = await fetch(apiUrl, {
-    headers: { 
-      'Authorization': `token ${GITHUB_TOKEN}`, 
-      'User-Agent': 'PasteApp' 
-    },
+    headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'User-Agent': 'PasteApp/1.0' },
   });
 
   if (!response.ok) {
@@ -140,11 +164,12 @@ async function fetchPastesFromGitHub(env: Env) {
 
   const files = await response.json();
   return files.map((file: any) => ({
-    title: file.name.replace('.txt', ''),
+    content: file.name,
     url: file.download_url,
   }));
 }
 
+// Base64 encode the content for GitHub upload
 function encodeBase64(str: string): string {
   const encoder = new TextEncoder();
   const data = encoder.encode(str);

@@ -92,9 +92,10 @@ async function saveToGitHub(pasteData: { title: string, content: string }, env: 
   const res = await fetch(apiUrl, {
     method: 'PUT',
     headers: {
-      'Authorization': `Bearer ${GITHUB_TOKEN}`,
-      'Content-Type': 'application/json',
-      'Accept': 'application/vnd.github.v3+json',
+  'Authorization': `Bearer ${GITHUB_TOKEN}`,
+  'Content-Type': 'application/json',
+  'Accept': 'application/vnd.github.v3+json',
+  'User-Agent': 'Cloudflare-Worker'
     },
     body: JSON.stringify(payload),
   });

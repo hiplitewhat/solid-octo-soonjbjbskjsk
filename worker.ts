@@ -1,4 +1,3 @@
-
 export interface Env {
   GITHUB_TOKEN: string;
   REPO_OWNER: string;
@@ -26,31 +25,17 @@ export default {
           </ul>
           <script>
             async function fetchPastes() {
-              try {
-                const res = await fetch('/api/pastes');
-                if (!res.ok) {
-                  throw new Error('Failed to fetch pastes');
-                }
-                const pastes = await res.json();
-                const pasteList = document.getElementById('paste-list');
-                if (!pastes.length) {
-                  pasteList.innerHTML = '<li>No pastes available</li>';
-                  return;
-                }
-
-                pastes.forEach(paste => {
-                  const li = document.createElement('li');
-                  const a = document.createElement('a');
-                  a.href = paste.url;
-                  a.textContent = paste.title;
-                  li.appendChild(a);
-                  pasteList.appendChild(li);
-                });
-              } catch (err) {
-                console.error('Error fetching pastes:', err);
-                const pasteList = document.getElementById('paste-list');
-                pasteList.innerHTML = '<li>Error fetching pastes</li>';
-              }
+              const res = await fetch('/api/pastes');
+              const pastes = await res.json();
+              const pasteList = document.getElementById('paste-list');
+              pastes.forEach(paste => {
+                const li = document.createElement('li');
+                const a = document.createElement('a');
+                a.href = paste.url;
+                a.textContent = paste.title;
+                li.appendChild(a);
+                pasteList.appendChild(li);
+              });
             }
             fetchPastes();
           </script>
@@ -72,8 +57,8 @@ export default {
       try {
         await saveToGitHub(pasteData, env);
         return new Response('Paste created successfully!', { status: 200 });
-      } catch (err) {
-        return new Response(`Error saving paste: ${err.message}`, { status: 500 });
+      } catch (error) {
+        return new Response(`Error saving paste: ${error.message}`, { status: 500 });
       }
     }
 
@@ -82,8 +67,8 @@ export default {
       try {
         const pastes = await fetchPastesFromGitHub(env);
         return new Response(JSON.stringify(pastes), { headers: { 'Content-Type': 'application/json' } });
-      } catch (err) {
-        return new Response(`Error fetching pastes: ${err.message}`, { status: 500 });
+      } catch (error) {
+        return new Response(`Error fetching pastes: ${error.message}`, { status: 500 });
       }
     }
 
@@ -95,19 +80,40 @@ async function saveToGitHub(pasteData: { title: string, scriptUrl: string }, env
   const { GITHUB_TOKEN, REPO_OWNER, REPO_NAME } = env;
   const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${pasteData.title}.json`;
 
+  // Step 1: Fetch the current file metadata to get the sha if it exists
+  let fileSha: string | null = null;
+  try {
+    const metadataResponse = await fetch(apiUrl, {
+      headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'User-Agent': 'Cloudflare Worker' },
+    });
+
+    if (metadataResponse.ok) {
+      const metadata = await metadataResponse.json();
+      fileSha = metadata.sha;  // Extract the sha value
+    }
+  } catch (error) {
+    console.error('Error fetching file metadata:', error);
+  }
+
+  // Step 2: Prepare the commit payload
   const commitPayload = {
-    message: `Create paste: ${pasteData.title}`,
+    message: `Create or update paste: ${pasteData.title}`,
     content: encodeBase64(JSON.stringify(pasteData)),
     branch: 'main',
   };
 
+  if (fileSha) {
+    // If the file exists, include the sha in the payload to update the file
+    commitPayload['sha'] = fileSha;
+  }
+
+  // Step 3: Make the PUT request to create or update the file
   const response = await fetch(apiUrl, {
     method: 'PUT',
     headers: {
       'Authorization': `token ${GITHUB_TOKEN}`,
       'Content-Type': 'application/json',
-      'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': 'Cloudflare Worker' // Make sure the User-Agent and Accept headers are set
+      'User-Agent': 'Cloudflare Worker',
     },
     body: JSON.stringify(commitPayload),
   });
@@ -125,21 +131,14 @@ async function fetchPastesFromGitHub(env: Env) {
   const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/`;
 
   const response = await fetch(apiUrl, {
-    headers: {
-      'Authorization': `token ${GITHUB_TOKEN}`,
-      'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': 'Cloudflare Worker'
-    },
+    headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'User-Agent': 'Cloudflare Worker' },
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Failed to fetch pastes from GitHub: ${response.status} - ${errorText}`);
+    throw new Error(`Failed to fetch pastes from GitHub: ${response.statusText}`);
   }
 
   const files = await response.json();
-  console.log("Fetched files:", files); // Log the files fetched from GitHub
-
   return files.map((file: any) => ({
     title: file.name.replace('.json', ''),
     url: file.download_url,

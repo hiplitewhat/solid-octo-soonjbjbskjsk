@@ -106,7 +106,8 @@ async function saveToGitHub(pasteData: { title: string, scriptUrl: string }, env
     headers: {
       'Authorization': `token ${GITHUB_TOKEN}`,
       'Content-Type': 'application/json',
-      'Accept': 'application/vnd.github.v3+json', // Make sure the User-Agent and Accept headers are set
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'Cloudflare Worker' // Make sure the User-Agent and Accept headers are set
     },
     body: JSON.stringify(commitPayload),
   });

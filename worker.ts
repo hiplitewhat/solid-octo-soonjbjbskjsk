@@ -1,3 +1,4 @@
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(req.url);
@@ -91,10 +92,13 @@ export default {
         return new Response('Content contains inappropriate language', { status: 400 });
       }
 
+      // Apply the obfuscation logic to the content
+      const obfuscatedContent = obfuscateLuaScript(content);
+
       // Add the new paste to the existing pastes file
       const pasteData = {
         id: Date.now().toString(), // Unique paste ID
-        content: content,
+        content: obfuscatedContent,
         createdAt: new Date().toISOString(),
       };
 
@@ -109,9 +113,16 @@ export default {
       return new Response(JSON.stringify(pastes), { headers: { 'Content-Type': 'application/json' } });
     }
 
-    // Serve the paste content at /paste/:id
+    // Serve the paste content at /paste/:id with User-Agent check
     if (req.method === 'GET' && pathname.startsWith('/paste/')) {
       const pasteId = pathname.split('/').pop();  // Get the paste ID from the URL
+
+      // Check if the User-Agent is Roblox
+      const userAgent = req.headers.get('User-Agent') || '';
+      if (!userAgent.toLowerCase().includes('roblox')) {
+        return new Response('Forbidden: Invalid User-Agent', { status: 403 });
+      }
+
       const paste = await fetchPasteFromGitHub(pasteId, env);
       if (!paste) {
         return new Response('Paste not found', { status: 404 });
@@ -122,6 +133,14 @@ export default {
     return new Response('Not Found', { status: 404 });
   }
 };
+
+// Obfuscate the Lua script content
+function obfuscateLuaScript(content: string): string {
+  const thing = content;
+  const encoded = thing.split("").map(char => "\\" + char.charCodeAt(0)).join("");
+
+  return `print('Encoded your script... Copy it below!')\nprint('loadstring("${encoded}")()')`;
+}
 
 // Check for bad words using Gemini API
 async function checkBadWordsWithGemini(content: string, apiKey: string): Promise<boolean> {

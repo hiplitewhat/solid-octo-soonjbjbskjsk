@@ -7,8 +7,7 @@ export interface Env {
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
-    const url = new URL(req.url);
-    const pathname = url.pathname;
+    const { pathname } = new URL(req.url);
 
     if (req.method === 'GET' && pathname === '/') {
       return new Response(`
@@ -19,25 +18,39 @@ export default {
           <h1>Create a Paste</h1>
           <form method="POST" action="/api/paste">
             <textarea name="content" rows="10" cols="40" placeholder="Enter content here..."></textarea><br>
-            <input name="title" placeholder="Paste Title"><br>
             <button type="submit">Create Paste</button>
           </form>
           <h2>Pastes</h2>
-          <ul id="paste-list"></ul>
+          <ul id="paste-list">
+            <!-- List of pastes will be injected here by JavaScript -->
+          </ul>
           <script>
             async function fetchPastes() {
-              const res = await fetch('/api/pastes');
-              const pastes = await res.json();
-              const pasteList = document.getElementById('paste-list');
-              pasteList.innerHTML = '';
-              pastes.forEach(paste => {
-                const li = document.createElement('li');
-                const a = document.createElement('a');
-                a.href = paste.url;
-                a.textContent = paste.title;
-                li.appendChild(a);
-                pasteList.appendChild(li);
-              });
+              try {
+                const res = await fetch('/api/pastes');
+                if (!res.ok) {
+                  throw new Error('Failed to fetch pastes');
+                }
+                const pastes = await res.json();
+                const pasteList = document.getElementById('paste-list');
+                if (!pastes.length) {
+                  pasteList.innerHTML = '<li>No pastes available</li>';
+                  return;
+                }
+
+                pastes.forEach(paste => {
+                  const li = document.createElement('li');
+                  const a = document.createElement('a');
+                  a.href = paste.url;
+                  a.textContent = paste.title;
+                  li.appendChild(a);
+                  pasteList.appendChild(li);
+                });
+              } catch (err) {
+                console.error('Error fetching pastes:', err);
+                const pasteList = document.getElementById('paste-list');
+                pasteList.innerHTML = '<li>Error fetching pastes</li>';
+              }
             }
             fetchPastes();
           </script>
@@ -46,32 +59,31 @@ export default {
       `, { headers: { 'Content-Type': 'text/html' } });
     }
 
+    // Handle POST requests for creating a paste
     if (req.method === 'POST' && pathname === '/api/paste') {
       const formData = await req.formData();
       const content = formData.get('content')?.toString();
-      const title = formData.get('title')?.toString();
-
-      if (!content || !title) {
-        return new Response('Content and title are required', { status: 400 });
+      if (!content) {
+        return new Response('Content is required', { status: 400 });
       }
 
+      // Save the paste to GitHub
+      const pasteData = { title: 'New Paste', scriptUrl: content };
       try {
-        const pasteData = { title, content };
         await saveToGitHub(pasteData, env);
         return new Response('Paste created successfully!', { status: 200 });
       } catch (err) {
-        console.error('Failed to save paste:', err);
-        return new Response('Failed to create paste', { status: 500 });
+        return new Response(`Error saving paste: ${err.message}`, { status: 500 });
       }
     }
 
+    // Handle fetching the list of pastes from GitHub
     if (req.method === 'GET' && pathname === '/api/pastes') {
       try {
         const pastes = await fetchPastesFromGitHub(env);
         return new Response(JSON.stringify(pastes), { headers: { 'Content-Type': 'application/json' } });
       } catch (err) {
-        console.error('Failed to fetch pastes:', err);
-        return new Response('Failed to fetch pastes', { status: 500 });
+        return new Response(`Error fetching pastes: ${err.message}`, { status: 500 });
       }
     }
 
@@ -79,61 +91,61 @@ export default {
   }
 };
 
-async function saveToGitHub(pasteData: { title: string, content: string }, env: Env) {
+async function saveToGitHub(pasteData: { title: string, scriptUrl: string }, env: Env) {
   const { GITHUB_TOKEN, REPO_OWNER, REPO_NAME } = env;
-  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/pastes/${encodeURIComponent(pasteData.title)}.json`;
+  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${pasteData.title}.json`;
 
-  const payload = {
+  const commitPayload = {
     message: `Create paste: ${pasteData.title}`,
-    content: encodeContent(pasteData),
+    content: encodeBase64(JSON.stringify(pasteData)),
     branch: 'main',
   };
 
-  const res = await fetch(apiUrl, {
+  const response = await fetch(apiUrl, {
     method: 'PUT',
     headers: {
-  'Authorization': `Bearer ${GITHUB_TOKEN}`,
-  'Content-Type': 'application/json',
-  'Accept': 'application/vnd.github.v3+json',
-  'User-Agent': 'Cloudflare-Worker'
+      'Authorization': `token ${GITHUB_TOKEN}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/vnd.github.v3+json', // Make sure the User-Agent and Accept headers are set
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(commitPayload),
   });
 
-  if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(`GitHub save failed: ${res.status} - ${errorBody}`);
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`GitHub save failed: ${response.status} - ${errorText}`);
   }
+
+  return await response.json();
 }
 
 async function fetchPastesFromGitHub(env: Env) {
   const { GITHUB_TOKEN, REPO_OWNER, REPO_NAME } = env;
-  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/pastes`;
+  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/`;
 
-  const res = await fetch(apiUrl, {
+  const response = await fetch(apiUrl, {
     headers: {
-      'Authorization': `Bearer ${GITHUB_TOKEN}`,
+      'Authorization': `token ${GITHUB_TOKEN}`,
       'Accept': 'application/vnd.github.v3+json',
     },
   });
 
-  if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(`GitHub fetch failed: ${res.status} - ${errorBody}`);
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to fetch pastes from GitHub: ${response.status} - ${errorText}`);
   }
 
-  const files = await res.json();
+  const files = await response.json();
+  console.log("Fetched files:", files); // Log the files fetched from GitHub
 
   return files.map((file: any) => ({
-    title: decodeURIComponent(file.name.replace('.json', '')),
+    title: file.name.replace('.json', ''),
     url: file.download_url,
   }));
 }
 
-function encodeContent(pasteData: { title: string, content: string }): string {
-  const str = JSON.stringify(pasteData);
-  const bytes = new TextEncoder().encode(str);
-  let binary = '';
-  bytes.forEach(b => binary += String.fromCharCode(b));
-  return btoa(binary);
+function encodeBase64(str: string): string {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(str);
+  return btoa(String.fromCharCode(...data));
 }

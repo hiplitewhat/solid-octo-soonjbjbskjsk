@@ -26,6 +26,10 @@ export default {
           <ul id="paste-list">
             <!-- List of pastes will be injected here by JavaScript -->
           </ul>
+          <div id="paste-viewer" style="display:none;">
+            <h3>Paste Content</h3>
+            <pre id="paste-content"></pre>
+          </div>
           <script>
             let pastes = [];
 
@@ -34,13 +38,26 @@ export default {
               const res = await fetch('/api/pastes');
               const pastes = await res.json();
               const pasteList = document.getElementById('paste-list');
+              pasteList.innerHTML = ''; // Clear list before appending new pastes
               pastes.forEach(paste => {
                 const li = document.createElement('li');
-                const pre = document.createElement('pre');
-                pre.textContent = paste.content;
-                li.appendChild(pre);
+                const a = document.createElement('a');
+                a.href = "#";
+                a.textContent = paste.title;
+                a.onclick = () => viewPaste(paste.url);  // Set onclick to view paste
+                li.appendChild(a);
                 pasteList.appendChild(li);
               });
+            }
+
+            // View the content of a specific paste
+            async function viewPaste(url) {
+              const res = await fetch(url);
+              const content = await res.text();
+              const pasteViewer = document.getElementById('paste-viewer');
+              const pasteContent = document.getElementById('paste-content');
+              pasteContent.textContent = content;
+              pasteViewer.style.display = 'block'; // Show the viewer
             }
 
             // Submit the paste form
@@ -128,7 +145,7 @@ async function saveToGitHub(fileName: string, pasteData: { content: string }, en
 
   const commitPayload = {
     message: `Create paste: ${fileName}`,
-    content: encodeBase64(pasteData.content),
+    content: encodeBase64(JSON.stringify(pasteData)),
     branch: 'main',
   };
 
@@ -137,25 +154,24 @@ async function saveToGitHub(fileName: string, pasteData: { content: string }, en
     headers: {
       'Authorization': `token ${GITHUB_TOKEN}`,
       'Content-Type': 'application/json',
-      'User-Agent': 'PasteApp/1.0', // Required by GitHub API
     },
     body: JSON.stringify(commitPayload),
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to save paste to GitHub: ${response.statusText}`);
+    throw new Error(`GitHub save failed: ${response.statusText}`);
   }
 
   return await response.json();
 }
 
-// Fetch the list of pastes from GitHub repository
+// Fetch the list of pastes from GitHub
 async function fetchPastesFromGitHub(env: Env) {
   const { GITHUB_TOKEN, REPO_OWNER, REPO_NAME } = env;
   const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/`;
-
+  
   const response = await fetch(apiUrl, {
-    headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'User-Agent': 'PasteApp/1.0' },
+    headers: { 'Authorization': `token ${GITHUB_TOKEN}` },
   });
 
   if (!response.ok) {
@@ -164,12 +180,11 @@ async function fetchPastesFromGitHub(env: Env) {
 
   const files = await response.json();
   return files.map((file: any) => ({
-    content: file.name,
+    title: file.name.replace('.txt', ''),
     url: file.download_url,
   }));
 }
 
-// Base64 encode the content for GitHub upload
 function encodeBase64(str: string): string {
   const encoder = new TextEncoder();
   const data = encoder.encode(str);

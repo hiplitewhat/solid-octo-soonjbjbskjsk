@@ -1,3 +1,4 @@
+
 export interface Env {
   GITHUB_TOKEN: string;  // GitHub token for authentication
   REPO_OWNER: string;    // GitHub repository owner (your username or organization)
@@ -41,17 +42,16 @@ export default {
               pastes.forEach(paste => {
                 const li = document.createElement('li');
                 const a = document.createElement('a');
-                a.href = "#";
+                a.href = "/paste/" + paste.id; // Link to view individual paste
                 a.textContent = paste.title;
-                a.onclick = () => viewPaste(paste.url);  // Set onclick to view paste
                 li.appendChild(a);
                 pasteList.appendChild(li);
               });
             }
 
             // View the content of a specific paste
-            async function viewPaste(url) {
-              const res = await fetch(url);
+            async function viewPaste(id) {
+              const res = await fetch('/api/paste/' + id);
               const content = await res.text();
               const pasteViewer = document.getElementById('paste-viewer');
               const pasteContent = document.getElementById('paste-content');
@@ -111,6 +111,16 @@ export default {
     if (req.method === 'GET' && pathname === '/api/pastes') {
       const pastes = await fetchPastesFromGitHub(env);
       return new Response(JSON.stringify(pastes), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // Fetch individual paste by ID (or file name)
+    if (req.method === 'GET' && pathname.startsWith('/api/paste/')) {
+      const id = pathname.split('/').pop(); // Get the ID from the URL
+      const paste = await fetchPasteFromGitHub(id, env);
+      if (!paste) {
+        return new Response('Paste not found', { status: 404 });
+      }
+      return new Response(paste.content, { headers: { 'Content-Type': 'text/plain' } });
     }
 
     return new Response('Not Found', { status: 404 });
@@ -184,9 +194,31 @@ async function fetchPastesFromGitHub(env: Env) {
 
   const files = await response.json();
   return files.map((file: any) => ({
+    id: file.name.replace('.txt', ''),
     title: file.name.replace('.txt', ''),
-    url: file.download_url,
+    url: `/api/paste/${file.name}`,
   }));
+}
+
+// Fetch a single paste from GitHub by ID (or file name)
+async function fetchPasteFromGitHub(id: string, env: Env) {
+  const { GITHUB_TOKEN, REPO_OWNER, REPO_NAME } = env;
+  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${id}`;
+
+  const response = await fetch(apiUrl, {
+    headers: {
+      'Authorization': `token ${GITHUB_TOKEN}`,
+      'User-Agent': 'MyPasteApp/1.0',  // Custom User-Agent header
+    },
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const file = await response.json();
+  const content = atob(file.content);
+  return { content }; // Returning the decoded content
 }
 
 function encodeBase64(str: string): string {

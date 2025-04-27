@@ -1,4 +1,3 @@
-
 export interface Env {
   GITHUB_TOKEN: string;  // GitHub token for authentication
   REPO_OWNER: string;    // GitHub repository owner (your username or organization)
@@ -126,6 +125,7 @@ async function checkBadWordsWithGemini(content: string, apiKey: string): Promise
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
+      'User-Agent': 'MyPasteApp/1.0',  // Custom User-Agent header
     },
     body: JSON.stringify({ text: content }),
   });
@@ -154,6 +154,7 @@ async function saveToGitHub(fileName: string, pasteData: { content: string }, en
     headers: {
       'Authorization': `token ${GITHUB_TOKEN}`,
       'Content-Type': 'application/json',
+      'User-Agent': 'MyPasteApp/1.0',  // Custom User-Agent header
     },
     body: JSON.stringify(commitPayload),
   });
@@ -169,9 +170,12 @@ async function saveToGitHub(fileName: string, pasteData: { content: string }, en
 async function fetchPastesFromGitHub(env: Env) {
   const { GITHUB_TOKEN, REPO_OWNER, REPO_NAME } = env;
   const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/`;
-  
+
   const response = await fetch(apiUrl, {
-    headers: { 'Authorization': `token ${GITHUB_TOKEN}` },
+    headers: {
+      'Authorization': `token ${GITHUB_TOKEN}`,
+      'User-Agent': 'MyPasteApp/1.0',  // Custom User-Agent header
+    },
   });
 
   if (!response.ok) {

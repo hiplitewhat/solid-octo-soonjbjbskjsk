@@ -1,4 +1,3 @@
-
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(req.url);
@@ -92,15 +91,19 @@ export default {
         return new Response('Content contains inappropriate language', { status: 400 });
       }
 
-      // Save the paste to GitHub
-      const pasteData = { content };
-      const fileName = `paste_${Date.now()}.txt`; // unique filename based on timestamp
-      await saveToGitHub(fileName, pasteData, env);
+      // Add the new paste to the existing pastes file
+      const pasteData = {
+        id: Date.now().toString(), // Unique paste ID
+        content: content,
+        createdAt: new Date().toISOString(),
+      };
 
-      return new Response('Paste created and saved to GitHub!', { status: 200 });
+      await appendToPastesFile(pasteData, env);
+
+      return new Response('Paste created!', { status: 200 });
     }
 
-    // Handle fetching the list of pastes from GitHub
+    // Fetch all pastes from GitHub
     if (req.method === 'GET' && pathname === '/api/pastes') {
       const pastes = await fetchPastesFromGitHub(env);
       return new Response(JSON.stringify(pastes), { headers: { 'Content-Type': 'application/json' } });
@@ -141,18 +144,38 @@ async function checkBadWordsWithGemini(content: string, apiKey: string): Promise
   return result.isSafe; // Assuming 'isSafe' indicates whether the content is safe
 }
 
-// Save the paste content to GitHub
-async function saveToGitHub(fileName: string, pasteData: { content: string }, env: Env) {
+// Append paste data to the single pastes file in GitHub
+async function appendToPastesFile(pasteData: { id: string, content: string, createdAt: string }, env: Env) {
   const { GITHUB_TOKEN, REPO_OWNER, REPO_NAME } = env;
-  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${fileName}`;
+  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/pastes.json`;
 
+  // Fetch the current contents of the file (if exists)
+  const response = await fetch(apiUrl, {
+    headers: {
+      'Authorization': `token ${GITHUB_TOKEN}`,
+      'User-Agent': 'MyPasteApp/1.0',  // Custom User-Agent header
+    },
+  });
+
+  let fileContent = [];
+  if (response.ok) {
+    const fileData = await response.json();
+    const content = atob(fileData.content);
+    fileContent = JSON.parse(content); // Parse the current pastes file
+  }
+
+  // Append new paste to the list
+  fileContent.push(pasteData);
+
+  // Save the updated file to GitHub
   const commitPayload = {
-    message: `Create paste: ${fileName}`,
-    content: encodeBase64(JSON.stringify(pasteData)),
+    message: `Add new paste: ${pasteData.id}`,
+    content: encodeBase64(JSON.stringify(fileContent)),
+    sha: fileContent.sha, // Get sha of the file to update it
     branch: 'main',
   };
 
-  const response = await fetch(apiUrl, {
+  const updateResponse = await fetch(apiUrl, {
     method: 'PUT',
     headers: {
       'Authorization': `token ${GITHUB_TOKEN}`,
@@ -162,17 +185,17 @@ async function saveToGitHub(fileName: string, pasteData: { content: string }, en
     body: JSON.stringify(commitPayload),
   });
 
-  if (!response.ok) {
-    throw new Error(`GitHub save failed: ${response.statusText}`);
+  if (!updateResponse.ok) {
+    throw new Error(`GitHub save failed: ${updateResponse.statusText}`);
   }
 
-  return await response.json();
+  return await updateResponse.json();
 }
 
 // Fetch the list of pastes from GitHub
 async function fetchPastesFromGitHub(env: Env) {
   const { GITHUB_TOKEN, REPO_OWNER, REPO_NAME } = env;
-  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/`;
+  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/pastes.json`;
 
   const response = await fetch(apiUrl, {
     headers: {
@@ -185,18 +208,15 @@ async function fetchPastesFromGitHub(env: Env) {
     throw new Error(`Failed to fetch pastes from GitHub: ${response.statusText}`);
   }
 
-  const files = await response.json();
-  return files.map((file: any) => ({
-    id: file.name.replace('.txt', ''),
-    title: file.name.replace('.txt', ''),
-    url: `/paste/${file.name}`,
-  }));
+  const file = await response.json();
+  const content = atob(file.content);
+  return JSON.parse(content); // Parse the JSON and return
 }
 
 // Fetch a single paste from GitHub by ID (or file name)
 async function fetchPasteFromGitHub(id: string, env: Env) {
   const { GITHUB_TOKEN, REPO_OWNER, REPO_NAME } = env;
-  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${id}`;
+  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/pastes.json`;
 
   const response = await fetch(apiUrl, {
     headers: {
@@ -211,7 +231,8 @@ async function fetchPasteFromGitHub(id: string, env: Env) {
 
   const file = await response.json();
   const content = atob(file.content);
-  return { content }; // Returning the decoded content
+  const pastes = JSON.parse(content);
+  return pastes.find(paste => paste.id === id); // Find the paste by ID
 }
 
 function encodeBase64(str: string): string {

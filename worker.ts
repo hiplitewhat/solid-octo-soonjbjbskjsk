@@ -1,11 +1,4 @@
 
-export interface Env {
-  GITHUB_TOKEN: string;  // GitHub token for authentication
-  REPO_OWNER: string;    // GitHub repository owner (your username or organization)
-  REPO_NAME: string;     // GitHub repository name
-  GEMINI_API_KEY: string; // Gemini API key for content moderation
-}
-
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(req.url);
@@ -51,7 +44,7 @@ export default {
 
             // View the content of a specific paste
             async function viewPaste(id) {
-              const res = await fetch('/api/paste/' + id);
+              const res = await fetch('/paste/' + id); // No '/api/' here
               const content = await res.text();
               const pasteViewer = document.getElementById('paste-viewer');
               const pasteContent = document.getElementById('paste-content');
@@ -113,10 +106,10 @@ export default {
       return new Response(JSON.stringify(pastes), { headers: { 'Content-Type': 'application/json' } });
     }
 
-    // Fetch individual paste by ID (or file name)
-    if (req.method === 'GET' && pathname.startsWith('/api/paste/')) {
-      const id = pathname.split('/').pop(); // Get the ID from the URL
-      const paste = await fetchPasteFromGitHub(id, env);
+    // Serve the paste content at /paste/:id
+    if (req.method === 'GET' && pathname.startsWith('/paste/')) {
+      const pasteId = pathname.split('/').pop();  // Get the paste ID from the URL
+      const paste = await fetchPasteFromGitHub(pasteId, env);
       if (!paste) {
         return new Response('Paste not found', { status: 404 });
       }
@@ -196,7 +189,7 @@ async function fetchPastesFromGitHub(env: Env) {
   return files.map((file: any) => ({
     id: file.name.replace('.txt', ''),
     title: file.name.replace('.txt', ''),
-    url: `/api/paste/${file.name}`,
+    url: `/paste/${file.name}`,
   }));
 }
 

@@ -128,6 +128,7 @@ async function fetchPastesFromGitHub(env: Env) {
     headers: {
       'Authorization': `token ${GITHUB_TOKEN}`,
       'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'Cloudflare Worker'
     },
   });
 

@@ -5,13 +5,13 @@ const REPO_OWNER = "hiplitewhat";
 const REPO_NAME = "notes-app";
 const USER_AGENT = "notes-app-worker";
 
-// HTML content for main dashboard
+// HTML content as a string (for the main page)
 const HTML_PAGE = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Notes App</title>
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; }
@@ -22,7 +22,8 @@ const HTML_PAGE = `
 <body>
   <h1>Notes App</h1>
   <form id="noteForm">
-    <textarea id="content" rows="4" placeholder="Write your note here..."></textarea><br>
+    <input type="text" id="title" placeholder="Note Title" required /><br>
+    <textarea id="content" rows="4" placeholder="Write your note here..." required></textarea><br>
     <button type="submit">Create Note</button>
   </form>
   <h2>All Notes</h2>
@@ -30,13 +31,15 @@ const HTML_PAGE = `
   <script>
     document.getElementById('noteForm').addEventListener('submit', async (e) => {
       e.preventDefault();
+      const title = document.getElementById('title').value;
       const content = document.getElementById('content').value;
       const response = await fetch('/notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content })
+        body: JSON.stringify({ title, content })
       });
       if (response.ok) {
+        document.getElementById('title').value = '';
         document.getElementById('content').value = '';
         fetchNotes();
       } else {
@@ -49,13 +52,18 @@ const HTML_PAGE = `
       const notes = await response.json();
       const notesContainer = document.getElementById('notesContainer');
       notesContainer.innerHTML = '';
-      notes.forEach(note => {
+      notes.forEach((note, index) => {
         const div = document.createElement('div');
         div.classList.add('note');
-        const button = document.createElement('button');
-        button.textContent = 'View Note';
-        button.onclick = () => window.location.href = '/notes/' + note.id;
-        div.appendChild(button);
+        const noteLink = document.createElement('a');
+        noteLink.href = '/notes/' + note.id;  // Link to the HTML version of the note
+        noteLink.textContent = note.title;
+        div.appendChild(noteLink);
+        const rawLink = document.createElement('a');
+        rawLink.href = '/notes/raw/' + note.id;  // Link to the raw version of the note
+        rawLink.textContent = " (Raw)";
+        rawLink.style.marginLeft = "10px";
+        div.appendChild(rawLink);
         notesContainer.appendChild(div);
       });
     }
@@ -69,10 +77,12 @@ const HTML_PAGE = `
 async function handleRequest(request) {
   const url = new URL(request.url);
 
+  // Serve the main page
   if (url.pathname === "/") {
     return new Response(HTML_PAGE, { headers: { "Content-Type": "text/html" } });
   }
 
+  // Fetch all notes (JSON response)
   if (url.pathname === "/notes" && request.method === "GET") {
     const notes = await fetchNotesFromGitHub();
     return new Response(JSON.stringify(notes), {
@@ -80,10 +90,12 @@ async function handleRequest(request) {
     });
   }
 
+  // Create a new note
   if (url.pathname === "/notes" && request.method === "POST") {
-    const { content } = await request.json();
-    if (!content) {
-      return new Response(JSON.stringify({ message: "Content is required." }), { status: 400 });
+    const requestBody = await request.json();
+    const { title, content } = requestBody;
+    if (!title || !content) {
+      return new Response(JSON.stringify({ message: "Title and Content are required." }), { status: 400 });
     }
 
     let obfuscatedContent = content;
@@ -96,7 +108,7 @@ async function handleRequest(request) {
         });
         if (response.ok) {
           const data = await response.json();
-          if (data.obfuscated?.trim()) {
+          if (typeof data.obfuscated === "string" && data.obfuscated.trim() !== "") {
             obfuscatedContent = data.obfuscated;
           }
         }
@@ -106,14 +118,15 @@ async function handleRequest(request) {
     }
 
     const noteId = generateUUID();
-    await storeNoteInGitHub(noteId, obfuscatedContent);
+    await storeNoteInGitHub(noteId, title, obfuscatedContent);
 
-    return new Response(JSON.stringify({ id: noteId }), {
+    return new Response(JSON.stringify({ id: noteId, title, content: obfuscatedContent }), {
       status: 201,
       headers: { "Content-Type": "application/json" }
     });
   }
 
+  // Serve a note as HTML
   if (url.pathname.startsWith("/notes/") && request.method === "GET") {
     const noteId = url.pathname.split("/")[2];
     const note = await fetchNoteFromGitHub(noteId);
@@ -122,35 +135,52 @@ async function handleRequest(request) {
     }
     return new Response(`
       <!DOCTYPE html>
-      <html><body>
-      <h1>Note</h1><pre>${escapeHtml(note)}</pre>
-      <a href="/">Back to Notes</a>
-      </body></html>
-    `, {
-      headers: { "Content-Type": "text/html" }
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${note.title}</title>
+      </head>
+      <body>
+        <h1>${note.title}</h1>
+        <pre>${note.content}</pre>
+      </body>
+      </html>
+    `, { headers: { "Content-Type": "text/html" } });
+  }
+
+  // Serve a raw note (plain text)
+  if (url.pathname.startsWith("/notes/raw/") && request.method === "GET") {
+    const noteId = url.pathname.split("/")[3];
+    const note = await fetchNoteFromGitHub(noteId);
+    if (!note) {
+      return new Response("Note not found", { status: 404 });
+    }
+    return new Response(note.content, {
+      headers: { "Content-Type": "text/plain" }
     });
   }
 
   return new Response("Not Found", { status: 404 });
 }
 
+// Utility: Check if content appears to be Roblox-related
 function isRobloxScript(content) {
   return content.includes("game") || content.includes("script");
 }
 
+// Utility: Generate UUID
 function generateUUID() {
   return crypto.randomUUID();
 }
 
-function escapeHtml(unsafe) {
-  return unsafe.replace(/[&<>"']/g, m => ({
-    '&': "&amp;", '<': "&lt;", '>': "&gt;", '"': "&quot;", "'": "&#039;"
-  }[m]));
-}
+// Store a new note in GitHub
+async function storeNoteInGitHub(noteId, title, content) {
+  if (!GITHUB_TOKEN) throw new Error("Missing GitHub token");
 
-async function storeNoteInGitHub(noteId, content) {
-  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes/${noteId}.txt`;
-  const base64Content = btoa(content);
+  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes/${noteId}.json`;
+  const base64Content = btoa(JSON.stringify({ title, content }));
+
   const payload = {
     message: `Add new note: ${noteId}`,
     content: base64Content,
@@ -170,10 +200,14 @@ async function storeNoteInGitHub(noteId, content) {
     body: JSON.stringify(payload),
   });
 
-  if (!response.ok) throw new Error(`GitHub API error: ${response.statusText}`);
+  if (!response.ok) {
+    throw new Error(`GitHub API error: ${response.statusText}`);
+  }
+
   return await response.json();
 }
 
+// Fetch all notes from GitHub
 async function fetchNotesFromGitHub() {
   const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes`;
   const headers = {
@@ -183,22 +217,26 @@ async function fetchNotesFromGitHub() {
   };
 
   const response = await fetch(apiUrl, { headers });
-  if (!response.ok) throw new Error(`GitHub fetch error: ${response.statusText}`);
+  if (!response.ok) {
+    throw new Error(`GitHub fetch error: ${response.statusText}`);
+  }
 
   const files = await response.json();
   const notes = [];
 
   for (const file of files) {
-    if (file.type === "file" && file.name.endsWith(".txt")) {
-      notes.push({ id: file.name.replace(".txt", "") });
+    if (file.type === "file" && file.name.endsWith(".json")) {
+      const content = await fetch(file.download_url).then(res => res.json());
+      notes.push({ id: file.name.split(".")[0], title: content.title, content: content.content });
     }
   }
 
   return notes;
 }
 
+// Fetch a specific note from GitHub
 async function fetchNoteFromGitHub(noteId) {
-  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes/${noteId}.txt`;
+  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes/${noteId}.json`;
   const headers = {
     "Authorization": `token ${GITHUB_TOKEN}`,
     "Accept": "application/vnd.github.v3+json",
@@ -206,11 +244,14 @@ async function fetchNoteFromGitHub(noteId) {
   };
 
   const response = await fetch(apiUrl, { headers });
+
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`GitHub fetch error: ${response.statusText}`);
 
   const file = await response.json();
-  return await fetch(file.download_url).then(res => res.text());
+  const content = await fetch(file.download_url).then(res => res.json());
+
+  return { title: content.title, content: content.content };
 }
 
 addEventListener("fetch", event => {

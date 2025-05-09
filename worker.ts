@@ -1,10 +1,11 @@
 
-// GitHub settings (set GITHUB_TOKEN in your Cloudflare environment)
-const GITHUB_TOKEN = ENV_GITHUB_TOKEN;  // Set this in Cloudflare Worker environment variables
-const REPO_OWNER = "hiplitewhat";       // Your GitHub username
-const REPO_NAME = "notes-app";          // Name of your repository
+// GitHub settings (set GITHUB_TOKEN in Cloudflare environment variables)
+const GITHUB_TOKEN = ENV_GITHUB_TOKEN;
+const REPO_OWNER = "hiplitewhat";
+const REPO_NAME = "notes-app";
+const USER_AGENT = "notes-app-worker"; // GitHub requires this
 
-// Main handler
+// Main request handler
 async function handleRequest(request) {
   const url = new URL(request.url);
 
@@ -98,12 +99,12 @@ async function handleRequest(request) {
   }
 }
 
-// Check if content is Roblox-related
+// Check if content appears to be Roblox-related
 function isRobloxScript(content) {
   return content.includes("game") || content.includes("script");
 }
 
-// Obfuscate Roblox keywords
+// Very basic obfuscator for "game" keyword
 function obfuscateRobloxScript(script) {
   return script.replace(/\bgame\b/g, 'g' + Math.random().toString(36).substring(2, 8));
 }
@@ -113,8 +114,10 @@ function generateUUID() {
   return crypto.randomUUID();
 }
 
-// Save note to GitHub
+// Upload note to GitHub as a file
 async function storeNoteInGitHub(noteId, content) {
+  if (!GITHUB_TOKEN) throw new Error("Missing GitHub token");
+
   const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes/${noteId}.txt`;
   const base64Content = btoa(content);
 
@@ -127,7 +130,8 @@ async function storeNoteInGitHub(noteId, content) {
   const headers = {
     "Authorization": `token ${GITHUB_TOKEN}`,
     "Accept": "application/vnd.github.v3+json",
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
+    "User-Agent": USER_AGENT
   };
 
   const response = await fetch(apiUrl, {
@@ -143,12 +147,13 @@ async function storeNoteInGitHub(noteId, content) {
   return await response.json();
 }
 
-// Load all notes from GitHub
+// Read notes from GitHub notes folder
 async function fetchNotesFromGitHub() {
   const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes`;
   const headers = {
     "Authorization": `token ${GITHUB_TOKEN}`,
-    "Accept": "application/vnd.github.v3+json"
+    "Accept": "application/vnd.github.v3+json",
+    "User-Agent": USER_AGENT
   };
 
   const response = await fetch(apiUrl, { headers });
@@ -170,7 +175,7 @@ async function fetchNotesFromGitHub() {
   }));
 }
 
-// Attach to Cloudflare event
+// Cloudflare Worker event listener
 addEventListener("fetch", event => {
   event.respondWith(handleRequest(event.request));
 });

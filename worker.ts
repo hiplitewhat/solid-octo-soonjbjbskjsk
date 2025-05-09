@@ -49,10 +49,10 @@ const HTML_PAGE = `
       const notes = await response.json();
       const notesContainer = document.getElementById('notesContainer');
       notesContainer.innerHTML = '';
-      notes.forEach(note => {
+      notes.forEach(content => {
         const div = document.createElement('div');
         div.classList.add('note');
-        div.innerHTML = \`<strong>ID: \${note.id}</strong><br>\${note.content}\`;
+        div.textContent = content;
         notesContainer.appendChild(div);
       });
     }
@@ -63,7 +63,6 @@ const HTML_PAGE = `
 </html>
 `;
 
-// Main request handler
 async function handleRequest(request) {
   const url = new URL(request.url);
 
@@ -105,9 +104,9 @@ async function handleRequest(request) {
     }
 
     const noteId = generateUUID();
-    const result = await storeNoteInGitHub(noteId, obfuscatedContent);
+    await storeNoteInGitHub(noteId, obfuscatedContent);
 
-    return new Response(JSON.stringify({ id: noteId, content: obfuscatedContent, github: result }), {
+    return new Response(JSON.stringify(obfuscatedContent), {
       status: 201,
       headers: { "Content-Type": "application/json" }
     });
@@ -151,8 +150,8 @@ async function handleRequest(request) {
       }
     }
 
-    const result = await updateNoteInGitHub(noteId, obfuscatedContent);
-    return new Response(JSON.stringify({ id: noteId, content: obfuscatedContent, github: result }), {
+    await updateNoteInGitHub(noteId, obfuscatedContent);
+    return new Response(JSON.stringify(obfuscatedContent), {
       status: 200,
       headers: { "Content-Type": "application/json" }
     });
@@ -176,8 +175,7 @@ async function storeNoteInGitHub(noteId, content) {
   if (!GITHUB_TOKEN) throw new Error("Missing GitHub token");
 
   const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes/${noteId}.txt`;
-  const note = `ID: ${noteId}\nContent: ${content}\n\n`;
-  const base64Content = btoa(note);
+  const base64Content = btoa(content);
 
   const payload = {
     message: `Add new note: ${noteId}`,
@@ -225,8 +223,7 @@ async function fetchNotesFromGitHub() {
   for (const file of files) {
     if (file.type === "file" && file.name.endsWith(".txt")) {
       const content = await fetch(file.download_url).then(res => res.text());
-      const id = file.name.replace(".txt", "");
-      notes.push({ id, content });
+      notes.push(content);
     }
   }
 
@@ -250,7 +247,7 @@ async function fetchNoteFromGitHub(noteId) {
   const file = await response.json();
   const content = await fetch(file.download_url).then(res => res.text());
 
-  return { id: noteId, content };
+  return content;
 }
 
 // Update a specific note on GitHub
@@ -266,7 +263,7 @@ async function updateNoteInGitHub(noteId, content) {
   if (!getResp.ok) throw new Error("Could not retrieve existing file for update");
   const file = await getResp.json();
 
-  const base64Content = btoa(`ID: ${noteId}\nContent: ${content}\n\n`);
+  const base64Content = btoa(content);
   const payload = {
     message: `Update note: ${noteId}`,
     content: base64Content,

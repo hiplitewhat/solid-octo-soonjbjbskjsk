@@ -56,16 +56,13 @@ const HTML_PAGE = `
         const div = document.createElement('div');
         div.classList.add('note');
         const noteLink = document.createElement('a');
-        noteLink.href = '/notes/' + note.id;  // Link to the HTML version of the note
+        noteLink.href = '/notes/' + note.id;
         noteLink.textContent = note.title;
         div.appendChild(noteLink);
-        
-        // Add raw link back
         const rawLink = document.createElement('a');
-        rawLink.href = '/notes/raw/' + note.id;  // Link to the raw version of the note
+        rawLink.href = '/notes/raw/' + note.id;
         rawLink.textContent = ' (Raw)';
         div.appendChild(rawLink);
-        
         notesContainer.appendChild(div);
       });
     }
@@ -79,12 +76,10 @@ const HTML_PAGE = `
 async function handleRequest(request) {
   const url = new URL(request.url);
 
-  // Serve the main page
   if (url.pathname === "/") {
     return new Response(HTML_PAGE, { headers: { "Content-Type": "text/html" } });
   }
 
-  // Fetch all notes (JSON response)
   if (url.pathname === "/notes" && request.method === "GET") {
     const notes = await fetchNotesFromGitHub();
     return new Response(JSON.stringify(notes), {
@@ -92,7 +87,6 @@ async function handleRequest(request) {
     });
   }
 
-  // Create a new note
   if (url.pathname === "/notes" && request.method === "POST") {
     const requestBody = await request.json();
     const { title, content } = requestBody;
@@ -120,6 +114,7 @@ async function handleRequest(request) {
     }
 
     const noteId = generateUUID();
+    console.log(`Storing note ID: ${noteId}`);
     await storeNoteInGitHub(noteId, title, obfuscatedContent);
 
     return new Response(JSON.stringify({ id: noteId, title, content: obfuscatedContent }), {
@@ -128,8 +123,7 @@ async function handleRequest(request) {
     });
   }
 
-  // Serve a note as HTML
-  if (url.pathname.startsWith("/notes/") && request.method === "GET") {
+  if (url.pathname.startsWith("/notes/") && request.method === "GET" && !url.pathname.startsWith("/notes/raw/")) {
     const noteId = url.pathname.split("/")[2];
     const note = await fetchNoteFromGitHub(noteId);
     if (!note) {
@@ -151,13 +145,19 @@ async function handleRequest(request) {
     `, { headers: { "Content-Type": "text/html" } });
   }
 
-  // Serve raw content of a note
   if (url.pathname.startsWith("/notes/raw/") && request.method === "GET") {
-    const noteId = url.pathname.split("/")[2];
+    const noteId = url.pathname.split("/")[3];
+    console.log("Requested raw note ID:", noteId);
+
     const note = await fetchNoteFromGitHub(noteId);
     if (!note) {
-      return new Response("Note not found", { status: 404 });
+      console.warn(`Note with ID '${noteId}' not found in GitHub.`);
+      return new Response(`Raw note not found.\nMake sure the note ID is correct and the file exists in GitHub as notes/${noteId}.json.`, {
+        status: 404,
+        headers: { "Content-Type": "text/plain" }
+      });
     }
+
     return new Response(note.content, {
       headers: { "Content-Type": "text/plain" }
     });
@@ -166,17 +166,14 @@ async function handleRequest(request) {
   return new Response("Not Found", { status: 404 });
 }
 
-// Utility: Check if content appears to be Roblox-related
 function isRobloxScript(content) {
   return content.includes("game") || content.includes("script");
 }
 
-// Utility: Generate UUID
 function generateUUID() {
   return crypto.randomUUID();
 }
 
-// Store a new note in GitHub
 async function storeNoteInGitHub(noteId, title, content) {
   if (!GITHUB_TOKEN) throw new Error("Missing GitHub token");
 
@@ -209,7 +206,6 @@ async function storeNoteInGitHub(noteId, title, content) {
   return await response.json();
 }
 
-// Fetch all notes from GitHub
 async function fetchNotesFromGitHub() {
   const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes`;
   const headers = {
@@ -236,7 +232,6 @@ async function fetchNotesFromGitHub() {
   return notes;
 }
 
-// Fetch a specific note from GitHub
 async function fetchNoteFromGitHub(noteId) {
   const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes/${noteId}.json`;
   const headers = {
@@ -247,7 +242,7 @@ async function fetchNoteFromGitHub(noteId) {
 
   const response = await fetch(apiUrl, { headers });
 
-  if (response.status === 404) return null;  // Note not found
+  if (response.status === 404) return null;
   if (!response.ok) throw new Error(`GitHub fetch error: ${response.statusText}`);
 
   const file = await response.json();

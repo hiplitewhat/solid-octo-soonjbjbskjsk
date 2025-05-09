@@ -6,19 +6,75 @@ const REPO_NAME = "notes-app";
 const USER_AGENT = "notes-app-worker"; // GitHub requires this
 
 // Main request handler
-async function handleRequest(request) {
+async function handleRequest(request: Request) {
   const url = new URL(request.url);
 
-  // Route for all notes (GET)
-  if (url.pathname === "/notes" && request.method === "GET") {
+  // Serve the HTML page
+  if (url.pathname === "/") {
+    return new Response(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Notes App</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          input, button, textarea { margin: 5px 0; width: 100%; }
+          .note { padding: 10px; background-color: #f4f4f4; margin-bottom: 10px; }
+        </style>
+      </head>
+      <body>
+        <h1>Notes App</h1>
+        <form id="noteForm">
+          <textarea id="content" rows="4" placeholder="Write your note here..."></textarea><br>
+          <button type="submit">Create Note</button>
+        </form>
+
+        <h2>All Notes</h2>
+        <div id="notesContainer"></div>
+
+        <script>
+          document.getElementById('noteForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const content = document.getElementById('content').value;
+            const response = await fetch('/notes', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content })
+            });
+            if (response.ok) {
+              document.getElementById('content').value = '';
+              fetchNotes();
+            }
+          });
+
+          async function fetchNotes() {
+            const response = await fetch('/notes');
+            const notes = await response.json();
+            const notesContainer = document.getElementById('notesContainer');
+            notesContainer.innerHTML = '';
+            notes.forEach(note => {
+              const div = document.createElement('div');
+              div.classList.add('note');
+              div.innerHTML = \`<strong>\${note.id}</strong><br>\${note.content}\`;
+              notesContainer.appendChild(div);
+            });
+          }
+
+          window.onload = fetchNotes;
+        </script>
+      </body>
+      </html>
+    `, { headers: { "Content-Type": "text/html" } });
+
+  } else if (url.pathname === "/notes" && request.method === "GET") {
     const notes = await fetchNotesFromGitHub();
     return new Response(JSON.stringify(notes), {
       headers: { "Content-Type": "application/json" }
     });
 
-  } 
-  // Route to create a new note (POST)
-  else if (url.pathname === "/notes" && request.method === "POST") {
+  } else if (url.pathname === "/notes" && request.method === "POST") {
     const requestBody = await request.json();
     const { content } = requestBody;
 
@@ -63,7 +119,7 @@ async function handleRequest(request) {
 }
 
 // Check if content appears to be Roblox-related
-function isRobloxScript(content) {
+function isRobloxScript(content: string) {
   return content.includes("game") || content.includes("script");
 }
 
@@ -73,7 +129,7 @@ function generateUUID() {
 }
 
 // Append note to a single file in GitHub (notes.txt)
-async function storeNoteInGitHub(noteId, content) {
+async function storeNoteInGitHub(noteId: string, content: string) {
   if (!GITHUB_TOKEN) throw new Error("Missing GitHub token");
 
   const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes.txt`;

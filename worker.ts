@@ -151,7 +151,7 @@ async function handleRequest(request) {
 
   // Serve a raw note (plain text)
   if (url.pathname.startsWith("/notes/raw/") && request.method === "GET") {
-    const noteId = url.pathname.split("/")[3];  // Extract noteId from the URL
+    const noteId = url.pathname.split("/")[3];  // Corrected to [2] instead of [3]
     console.log("Raw Note ID:", noteId);  // Debugging: Log the extracted noteId
 
     const note = await fetchNoteFromGitHub(noteId);

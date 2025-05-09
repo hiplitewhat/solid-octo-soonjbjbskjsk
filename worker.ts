@@ -5,18 +5,103 @@ const REPO_OWNER = "hiplitewhat";
 const REPO_NAME = "notes-app";
 const USER_AGENT = "notes-app-worker"; // GitHub requires this
 
+// HTML content as a string (for the main page)
+const HTML_PAGE = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notes App</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    input, button, textarea {
+      margin: 5px 0;
+      width: 100%;
+    }
+    .note {
+      padding: 10px;
+      background-color: #f4f4f4;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Notes App</h1>
+  
+  <!-- Form to create a new note -->
+  <form id="noteForm">
+    <textarea id="content" rows="4" placeholder="Write your note here..."></textarea><br>
+    <button type="submit">Create Note</button>
+  </form>
+
+  <h2>All Notes</h2>
+  <div id="notesContainer"></div>
+
+  <script>
+    // Handle note creation
+    document.getElementById('noteForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const content = document.getElementById('content').value;
+      const response = await fetch('/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content })
+      });
+
+      if (response.ok) {
+        document.getElementById('content').value = '';
+        fetchNotes();
+      } else {
+        alert('Failed to create note');
+      }
+    });
+
+    // Fetch all notes
+    async function fetchNotes() {
+      const response = await fetch('/notes');
+      const notes = await response.json();
+      const notesContainer = document.getElementById('notesContainer');
+      notesContainer.innerHTML = ''; // Clear current notes
+
+      // Display all notes
+      notes.forEach(note => {
+        const div = document.createElement('div');
+        div.classList.add('note');
+        div.innerHTML = \`<strong>ID: \${note.id}</strong><br>\${note.content}\`;
+        notesContainer.appendChild(div);
+      });
+    }
+
+    window.onload = fetchNotes;
+  </script>
+</body>
+</html>
+`;
+
 // Main request handler
 async function handleRequest(request) {
   const url = new URL(request.url);
 
-  // Route to fetch all notes (GET)
+  // Serve HTML page for the root route (GET /)
+  if (url.pathname === "/") {
+    return new Response(HTML_PAGE, {
+      headers: { "Content-Type": "text/html" }
+    });
+  }
+
+  // Route to fetch all notes (GET /notes)
   if (url.pathname === "/notes" && request.method === "GET") {
     const notes = await fetchNotesFromGitHub();
     return new Response(JSON.stringify(notes), {
       headers: { "Content-Type": "application/json" }
     });
-  } 
-  // Route to create a new note (POST)
+  }
+
+  // Route to create a new note (POST /notes)
   else if (url.pathname === "/notes" && request.method === "POST") {
     const requestBody = await request.json();
     const { content } = requestBody;
@@ -55,7 +140,8 @@ async function handleRequest(request) {
       status: 201,
       headers: { "Content-Type": "application/json" }
     });
-  } 
+  }
+
   // Route to fetch a single note (GET /notes/{noteId})
   else if (url.pathname.startsWith("/notes/") && request.method === "GET") {
     const noteId = url.pathname.split("/")[2];
@@ -68,7 +154,8 @@ async function handleRequest(request) {
     return new Response(JSON.stringify(note), {
       headers: { "Content-Type": "application/json" }
     });
-  } 
+  }
+
   // Route to update a single note (PUT /notes/{noteId})
   else if (url.pathname.startsWith("/notes/") && request.method === "PUT") {
     const noteId = url.pathname.split("/")[2];
@@ -108,7 +195,8 @@ async function handleRequest(request) {
       status: 200,
       headers: { "Content-Type": "application/json" }
     });
-  } 
+  }
+
   // Return "Not Found" for other routes
   return new Response("Not Found", { status: 404 });
 }

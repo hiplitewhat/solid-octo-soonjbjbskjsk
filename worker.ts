@@ -1,16 +1,13 @@
 
-// GitHub settings (make sure to set GITHUB_TOKEN in your environment)
-const GITHUB_TOKEN = ENV_GITHUB_TOKEN;  // Set this in your Cloudflare environment variable
-const REPO_OWNER = "hiplitewhat";  // Your GitHub username
-const REPO_NAME = "notes-app";  // Name of your repository
+// GitHub settings (set GITHUB_TOKEN in your Cloudflare environment)
+const GITHUB_TOKEN = ENV_GITHUB_TOKEN;  // Set this in Cloudflare Worker environment variables
+const REPO_OWNER = "hiplitewhat";       // Your GitHub username
+const REPO_NAME = "notes-app";          // Name of your repository
 
-// In-memory store for notes (this would be replaced by KV or Durable Objects for persistent storage)
-let notes = [];
-
-// Function to handle incoming requests
+// Main handler
 async function handleRequest(request) {
   const url = new URL(request.url);
-  
+
   if (url.pathname === "/") {
     return new Response(`
       <!DOCTYPE html>
@@ -21,14 +18,14 @@ async function handleRequest(request) {
         <title>Notes App</title>
         <style>
           body { font-family: Arial, sans-serif; padding: 20px; }
-          input, button { margin: 5px 0; }
+          input, button, textarea { margin: 5px 0; width: 100%; }
           .note { padding: 10px; background-color: #f4f4f4; margin-bottom: 10px; }
         </style>
       </head>
       <body>
         <h1>Notes App</h1>
         <form id="noteForm">
-          <textarea id="content" rows="4" cols="50" placeholder="Write your note here..."></textarea><br>
+          <textarea id="content" rows="4" placeholder="Write your note here..."></textarea><br>
           <button type="submit">Create Note</button>
         </form>
 
@@ -36,7 +33,6 @@ async function handleRequest(request) {
         <div id="notesContainer"></div>
 
         <script>
-          // Handle form submission
           document.getElementById('noteForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const content = document.getElementById('content').value;
@@ -46,12 +42,11 @@ async function handleRequest(request) {
               body: JSON.stringify({ content })
             });
             if (response.ok) {
-              document.getElementById('content').value = '';  // Clear input
-              fetchNotes();  // Refresh the notes list
+              document.getElementById('content').value = '';
+              fetchNotes();
             }
           });
 
-          // Fetch and display all notes
           async function fetchNotes() {
             const response = await fetch('/notes');
             const notes = await response.json();
@@ -65,16 +60,18 @@ async function handleRequest(request) {
             });
           }
 
-          // Load notes on page load
           window.onload = fetchNotes;
         </script>
       </body>
       </html>
     `, { headers: { "Content-Type": "text/html" } });
+
   } else if (url.pathname === "/notes" && request.method === "GET") {
+    const notes = await fetchNotesFromGitHub();
     return new Response(JSON.stringify(notes), {
       headers: { "Content-Type": "application/json" }
     });
+
   } else if (url.pathname === "/notes" && request.method === "POST") {
     const requestBody = await request.json();
     const { content } = requestBody;
@@ -88,45 +85,37 @@ async function handleRequest(request) {
       obfuscatedContent = obfuscateRobloxScript(content);
     }
 
-    const newNote = { id: generateUUID(), content: obfuscatedContent };
-    notes.push(newNote);
+    const noteId = generateUUID();
+    const result = await storeNoteInGitHub(noteId, obfuscatedContent);
 
-    // Store the note in GitHub
-    const result = await storeNoteInGitHub(newNote.id, obfuscatedContent);
-
-    return new Response(JSON.stringify({ ...newNote, github: result }), {
+    return new Response(JSON.stringify({ id: noteId, content: obfuscatedContent, github: result }), {
       status: 201,
       headers: { "Content-Type": "application/json" }
     });
+
   } else {
     return new Response("Not Found", { status: 404 });
   }
 }
 
-// Check if the note is a Roblox script (simple check)
+// Check if content is Roblox-related
 function isRobloxScript(content) {
   return content.includes("game") || content.includes("script");
 }
 
-// Simple obfuscator that changes variable names (you can improve this)
+// Obfuscate Roblox keywords
 function obfuscateRobloxScript(script) {
-  return script.replace(/\bgame\b/g, 'g' + Math.random().toString(36).substring(2, 15));
+  return script.replace(/\bgame\b/g, 'g' + Math.random().toString(36).substring(2, 8));
 }
 
-// Function to generate a UUID
+// Generate UUID
 function generateUUID() {
   return crypto.randomUUID();
 }
 
-// Function to store the note in GitHub
+// Save note to GitHub
 async function storeNoteInGitHub(noteId, content) {
-  if (!GITHUB_TOKEN) {
-    throw new Error("GitHub token is missing.");
-  }
-
   const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes/${noteId}.txt`;
-  
-  // Prepare the content for GitHub (Base64 encoded)
   const base64Content = btoa(content);
 
   const payload = {
@@ -143,7 +132,7 @@ async function storeNoteInGitHub(noteId, content) {
 
   const response = await fetch(apiUrl, {
     method: "PUT",
-    headers: headers,
+    headers,
     body: JSON.stringify(payload),
   });
 
@@ -151,11 +140,37 @@ async function storeNoteInGitHub(noteId, content) {
     throw new Error(`GitHub API error: ${response.statusText}`);
   }
 
-  const data = await response.json();
-  return data;
+  return await response.json();
 }
 
-// Event listener for the Cloudflare Worker
+// Load all notes from GitHub
+async function fetchNotesFromGitHub() {
+  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes`;
+  const headers = {
+    "Authorization": `token ${GITHUB_TOKEN}`,
+    "Accept": "application/vnd.github.v3+json"
+  };
+
+  const response = await fetch(apiUrl, { headers });
+
+  if (!response.ok) {
+    if (response.status === 404) return []; // Folder doesn't exist yet
+    throw new Error(`GitHub fetch error: ${response.statusText}`);
+  }
+
+  const files = await response.json();
+
+  return await Promise.all(files.map(async (file) => {
+    const res = await fetch(file.download_url);
+    const content = await res.text();
+    return {
+      id: file.name.replace(".txt", ""),
+      content
+    };
+  }));
+}
+
+// Attach to Cloudflare event
 addEventListener("fetch", event => {
   event.respondWith(handleRequest(event.request));
 });

@@ -83,7 +83,25 @@ async function handleRequest(request) {
 
     let obfuscatedContent = content;
     if (isRobloxScript(content)) {
-      obfuscatedContent = obfuscateRobloxScript(content);
+      try {
+        const response = await fetch("https://comfortable-starfish-46.deno.dev/api/obfuscate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ script: content }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          // Check if the obfuscated data is a valid string
+          if (typeof data.obfuscated === "string" && data.obfuscated.trim() !== "") {
+            obfuscatedContent = data.obfuscated;
+          } else {
+            console.warn("Obfuscation response invalid, using original content.");
+          }
+        }
+      } catch (err) {
+        console.warn("Obfuscation API failed:", err.message);
+      }
     }
 
     const noteId = generateUUID();
@@ -93,7 +111,6 @@ async function handleRequest(request) {
       status: 201,
       headers: { "Content-Type": "application/json" }
     });
-
   } else {
     return new Response("Not Found", { status: 404 });
   }
@@ -102,11 +119,6 @@ async function handleRequest(request) {
 // Check if content appears to be Roblox-related
 function isRobloxScript(content) {
   return content.includes("game") || content.includes("script");
-}
-
-// Very basic obfuscator for "game" keyword
-function obfuscateRobloxScript(script) {
-  return script.replace(/\bgame\b/g, 'g' + Math.random().toString(36).substring(2, 8));
 }
 
 // Generate UUID

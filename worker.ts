@@ -153,7 +153,7 @@ async function handleRequest(request) {
 
   // Serve raw content of a note
   if (url.pathname.startsWith("/notes/raw/") && request.method === "GET") {
-    const noteId = url.pathname.split("/")[3];
+    const noteId = url.pathname.split("/")[2];
     const note = await fetchNoteFromGitHub(noteId);
     if (!note) {
       return new Response("Note not found", { status: 404 });

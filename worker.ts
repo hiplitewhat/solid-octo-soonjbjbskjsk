@@ -151,11 +151,16 @@ async function handleRequest(request) {
 
   // Serve a raw note (plain text)
   if (url.pathname.startsWith("/notes/raw/") && request.method === "GET") {
-    const noteId = url.pathname.split("/")[3];
+    const noteId = url.pathname.split("/")[3];  // Extract noteId from the URL
+    console.log("Raw Note ID:", noteId);  // Debugging: Log the extracted noteId
+
     const note = await fetchNoteFromGitHub(noteId);
     if (!note) {
       return new Response("Note not found", { status: 404 });
     }
+
+    console.log("Raw Content for Note ID:", noteId, note.content);  // Debugging: Log the raw note content
+
     return new Response(note.content, {
       headers: { "Content-Type": "text/plain" }
     });
@@ -245,7 +250,7 @@ async function fetchNoteFromGitHub(noteId) {
 
   const response = await fetch(apiUrl, { headers });
 
-  if (response.status === 404) return null;
+  if (response.status === 404) return null;  // Note not found
   if (!response.ok) throw new Error(`GitHub fetch error: ${response.statusText}`);
 
   const file = await response.json();

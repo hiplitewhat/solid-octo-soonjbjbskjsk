@@ -25,6 +25,9 @@ const HTML_PAGE = `
     <textarea id="content" rows="4" placeholder="Write your note here..."></textarea><br>
     <button type="submit">Create Note</button>
   </form>
+
+  <button onclick='location.href="/notes"' style="margin: 10px 0;">/notes</button>
+
   <h2>All Notes</h2>
   <div id="notesContainer"></div>
   <script>
@@ -66,10 +69,12 @@ const HTML_PAGE = `
 async function handleRequest(request) {
   const url = new URL(request.url);
 
+  // Serve main page
   if (url.pathname === "/") {
     return new Response(HTML_PAGE, { headers: { "Content-Type": "text/html" } });
   }
 
+  // GET all notes (JSON array)
   if (url.pathname === "/notes" && request.method === "GET") {
     const notes = await fetchNotesFromGitHub();
     return new Response(JSON.stringify(notes), {
@@ -77,9 +82,9 @@ async function handleRequest(request) {
     });
   }
 
+  // POST create a note
   if (url.pathname === "/notes" && request.method === "POST") {
-    const requestBody = await request.json();
-    const { content } = requestBody;
+    const { content } = await request.json();
     if (!content) {
       return new Response(JSON.stringify({ message: "Content is required." }), { status: 400 });
     }
@@ -87,16 +92,14 @@ async function handleRequest(request) {
     let obfuscatedContent = content;
     if (isRobloxScript(content)) {
       try {
-        const response = await fetch("https://comfortable-starfish-46.deno.dev/obfuscate", {
+        const resp = await fetch("https://comfortable-starfish-46.deno.dev/obfuscate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ script: content }),
         });
-        if (response.ok) {
-          const data = await response.json();
-          if (typeof data.obfuscated === "string" && data.obfuscated.trim() !== "") {
-            obfuscatedContent = data.obfuscated;
-          }
+        const data = await resp.json();
+        if (resp.ok && data.obfuscated?.trim()) {
+          obfuscatedContent = data.obfuscated;
         }
       } catch (err) {
         console.warn("Obfuscation API failed:", err.message);
@@ -105,28 +108,29 @@ async function handleRequest(request) {
 
     const noteId = generateUUID();
     await storeNoteInGitHub(noteId, obfuscatedContent);
-
     return new Response(JSON.stringify(obfuscatedContent), {
       status: 201,
       headers: { "Content-Type": "application/json" }
     });
   }
 
+  // GET single note as raw text
   if (url.pathname.startsWith("/notes/") && request.method === "GET") {
     const noteId = url.pathname.split("/")[2];
     const note = await fetchNoteFromGitHub(noteId);
-    if (!note) {
+    if (note === null) {
       return new Response("Note not found", { status: 404 });
     }
-    return new Response(JSON.stringify(note), {
-      headers: { "Content-Type": "application/json" }
+    // Return plain text without JSON quotes
+    return new Response(note, {
+      headers: { "Content-Type": "text/plain" }
     });
   }
 
+  // PUT update a note
   if (url.pathname.startsWith("/notes/") && request.method === "PUT") {
     const noteId = url.pathname.split("/")[2];
-    const requestBody = await request.json();
-    const { content } = requestBody;
+    const { content } = await request.json();
     if (!content) {
       return new Response(JSON.stringify({ message: "Content is required." }), { status: 400 });
     }
@@ -134,16 +138,14 @@ async function handleRequest(request) {
     let obfuscatedContent = content;
     if (isRobloxScript(content)) {
       try {
-        const response = await fetch("https://comfortable-starfish-46.deno.dev/obfuscate", {
+        const resp = await fetch("https://comfortable-starfish-46.deno.dev/obfuscate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ script: content }),
         });
-        if (response.ok) {
-          const data = await response.json();
-          if (typeof data.obfuscated === "string" && data.obfuscated.trim() !== "") {
-            obfuscatedContent = data.obfuscated;
-          }
+        const data = await resp.json();
+        if (resp.ok && data.obfuscated?.trim()) {
+          obfuscatedContent = data.obfuscated;
         }
       } catch (err) {
         console.warn("Obfuscation API failed:", err.message);
@@ -160,7 +162,7 @@ async function handleRequest(request) {
   return new Response("Not Found", { status: 404 });
 }
 
-// Utility: Check if content appears to be Roblox-related
+// Utility: Detect Roblox-like scripts
 function isRobloxScript(content) {
   return content.includes("game") || content.includes("script");
 }
@@ -170,37 +172,21 @@ function generateUUID() {
   return crypto.randomUUID();
 }
 
-// Store a new note in GitHub
+// Store new note in GitHub
 async function storeNoteInGitHub(noteId, content) {
   if (!GITHUB_TOKEN) throw new Error("Missing GitHub token");
-
   const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes/${noteId}.txt`;
-  const base64Content = btoa(content);
-
-  const payload = {
-    message: `Add new note: ${noteId}`,
-    content: base64Content,
-    branch: "main"
-  };
-
+  const base64 = btoa(content);
+  const payload = { message: `Add new note: ${noteId}`, content: base64, branch: "main" };
   const headers = {
     "Authorization": `token ${GITHUB_TOKEN}`,
     "Accept": "application/vnd.github.v3+json",
-    "Content-Type": "application/json",
-    "User-Agent": USER_AGENT
+    "User-Agent": USER_AGENT,
+    "Content-Type": "application/json"
   };
-
-  const response = await fetch(apiUrl, {
-    method: "PUT",
-    headers,
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    throw new Error(`GitHub API error: ${response.statusText}`);
-  }
-
-  return await response.json();
+  const resp = await fetch(apiUrl, { method: "PUT", headers, body: JSON.stringify(payload) });
+  if (!resp.ok) throw new Error(`GitHub API error: ${resp.statusText}`);
+  return resp.json();
 }
 
 // Fetch all notes from GitHub
@@ -211,26 +197,20 @@ async function fetchNotesFromGitHub() {
     "Accept": "application/vnd.github.v3+json",
     "User-Agent": USER_AGENT
   };
-
-  const response = await fetch(apiUrl, { headers });
-  if (!response.ok) {
-    throw new Error(`GitHub fetch error: ${response.statusText}`);
-  }
-
-  const files = await response.json();
+  const resp = await fetch(apiUrl, { headers });
+  if (!resp.ok) throw new Error(`GitHub fetch error: ${resp.statusText}`);
+  const files = await resp.json();
   const notes = [];
-
-  for (const file of files) {
-    if (file.type === "file" && file.name.endsWith(".txt")) {
-      const content = await fetch(file.download_url).then(res => res.text());
-      notes.push(content);
+  for (const f of files) {
+    if (f.type === "file" && f.name.endsWith(".txt")) {
+      const txt = await fetch(f.download_url).then(r => r.text());
+      notes.push(txt);
     }
   }
-
   return notes;
 }
 
-// Fetch a specific note from GitHub
+// Fetch a single note from GitHub
 async function fetchNoteFromGitHub(noteId) {
   const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes/${noteId}.txt`;
   const headers = {
@@ -238,48 +218,29 @@ async function fetchNoteFromGitHub(noteId) {
     "Accept": "application/vnd.github.v3+json",
     "User-Agent": USER_AGENT
   };
-
-  const response = await fetch(apiUrl, { headers });
-
-  if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`GitHub fetch error: ${response.statusText}`);
-
-  const file = await response.json();
-  const content = await fetch(file.download_url).then(res => res.text());
-
-  return content;
+  const resp = await fetch(apiUrl, { headers });
+  if (resp.status === 404) return null;
+  if (!resp.ok) throw new Error(`GitHub fetch error: ${resp.statusText}`);
+  const file = await resp.json();
+  return fetch(file.download_url).then(r => r.text());
 }
 
-// Update a specific note on GitHub
+// Update an existing note on GitHub
 async function updateNoteInGitHub(noteId, content) {
-  const getUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes/${noteId}.txt`;
+  const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes/${noteId}.txt`;
   const headers = {
     "Authorization": `token ${GITHUB_TOKEN}`,
     "Accept": "application/vnd.github.v3+json",
     "User-Agent": USER_AGENT
   };
-
-  const getResp = await fetch(getUrl, { headers });
-  if (!getResp.ok) throw new Error("Could not retrieve existing file for update");
+  const getResp = await fetch(url, { headers });
+  if (!getResp.ok) throw new Error("Could not retrieve file for update");
   const file = await getResp.json();
-
-  const base64Content = btoa(content);
-  const payload = {
-    message: `Update note: ${noteId}`,
-    content: base64Content,
-    sha: file.sha,
-    branch: "main"
-  };
-
-  const response = await fetch(getUrl, {
-    method: "PUT",
-    headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) throw new Error(`GitHub update error: ${response.statusText}`);
-
-  return await response.json();
+  const base64 = btoa(content);
+  const payload = { message: `Update note: ${noteId}`, content: base64, sha: file.sha, branch: "main" };
+  const resp = await fetch(url, { method: "PUT", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  if (!resp.ok) throw new Error(`GitHub update error: ${resp.statusText}`);
+  return resp.json();
 }
 
 addEventListener("fetch", event => {

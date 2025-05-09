@@ -1,7 +1,7 @@
 
 // GitHub settings (make sure to set GITHUB_TOKEN in your environment)
 const GITHUB_TOKEN = ENV_GITHUB_TOKEN;  // Set this in your Cloudflare environment variable
-const REPO_OWNER = "your-github-username";  // Your GitHub username
+const REPO_OWNER = "hiplitewhat";  // Your GitHub username
 const REPO_NAME = "notes-app";  // Name of your repository
 
 // In-memory store for notes (this would be replaced by KV or Durable Objects for persistent storage)

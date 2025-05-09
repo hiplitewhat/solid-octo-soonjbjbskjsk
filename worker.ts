@@ -1,102 +1,161 @@
-const serviceId = 3663;
-const secret = "151a5ade-1252-4c90-9608-f7402ad87578";
-const useNonce = true;
-const hostname = "https://api.platoboost.com";
 
-// HWID hashing
-async function hashHWID(hwid: string): Promise<string> {
-  const hashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(hwid));
-  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
+// GitHub settings (make sure to set GITHUB_TOKEN in your environment)
+const GITHUB_TOKEN = ENV_GITHUB_TOKEN;  // Set this in your Cloudflare environment variable
+const REPO_OWNER = "your-github-username";  // Your GitHub username
+const REPO_NAME = "notes-app";  // Name of your repository
+
+// In-memory store for notes (this would be replaced by KV or Durable Objects for persistent storage)
+let notes = [];
+
+// Function to handle incoming requests
+async function handleRequest(request) {
+  const url = new URL(request.url);
+  
+  if (url.pathname === "/") {
+    return new Response(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Notes App</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          input, button { margin: 5px 0; }
+          .note { padding: 10px; background-color: #f4f4f4; margin-bottom: 10px; }
+        </style>
+      </head>
+      <body>
+        <h1>Notes App</h1>
+        <form id="noteForm">
+          <textarea id="content" rows="4" cols="50" placeholder="Write your note here..."></textarea><br>
+          <button type="submit">Create Note</button>
+        </form>
+
+        <h2>All Notes</h2>
+        <div id="notesContainer"></div>
+
+        <script>
+          // Handle form submission
+          document.getElementById('noteForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const content = document.getElementById('content').value;
+            const response = await fetch('/notes', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content })
+            });
+            if (response.ok) {
+              document.getElementById('content').value = '';  // Clear input
+              fetchNotes();  // Refresh the notes list
+            }
+          });
+
+          // Fetch and display all notes
+          async function fetchNotes() {
+            const response = await fetch('/notes');
+            const notes = await response.json();
+            const notesContainer = document.getElementById('notesContainer');
+            notesContainer.innerHTML = '';
+            notes.forEach(note => {
+              const div = document.createElement('div');
+              div.classList.add('note');
+              div.innerHTML = \`<strong>\${note.id}</strong><br>\${note.content}\`;
+              notesContainer.appendChild(div);
+            });
+          }
+
+          // Load notes on page load
+          window.onload = fetchNotes;
+        </script>
+      </body>
+      </html>
+    `, { headers: { "Content-Type": "text/html" } });
+  } else if (url.pathname === "/notes" && request.method === "GET") {
+    return new Response(JSON.stringify(notes), {
+      headers: { "Content-Type": "application/json" }
+    });
+  } else if (url.pathname === "/notes" && request.method === "POST") {
+    const requestBody = await request.json();
+    const { content } = requestBody;
+
+    if (!content) {
+      return new Response(JSON.stringify({ message: "Content is required." }), { status: 400 });
+    }
+
+    let obfuscatedContent = content;
+    if (isRobloxScript(content)) {
+      obfuscatedContent = obfuscateRobloxScript(content);
+    }
+
+    const newNote = { id: generateUUID(), content: obfuscatedContent };
+    notes.push(newNote);
+
+    // Store the note in GitHub
+    const result = await storeNoteInGitHub(newNote.id, obfuscatedContent);
+
+    return new Response(JSON.stringify({ ...newNote, github: result }), {
+      status: 201,
+      headers: { "Content-Type": "application/json" }
+    });
+  } else {
+    return new Response("Not Found", { status: 404 });
+  }
 }
 
-// Nonce generator
-function generateNonce(): string {
-  return useNonce ? Date.now().toString() : "empty";
+// Check if the note is a Roblox script (simple check)
+function isRobloxScript(content) {
+  return content.includes("game") || content.includes("script");
 }
 
-// Get link from Platoboost
-async function getLink(hwid: string): Promise<string | null> {
-  const identifier = await hashHWID(hwid);
+// Simple obfuscator that changes variable names (you can improve this)
+function obfuscateRobloxScript(script) {
+  return script.replace(/\bgame\b/g, 'g' + Math.random().toString(36).substring(2, 15));
+}
 
-  const res = await fetch(`${hostname}/public/start`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ service: serviceId, identifier }),
+// Function to generate a UUID
+function generateUUID() {
+  return crypto.randomUUID();
+}
+
+// Function to store the note in GitHub
+async function storeNoteInGitHub(noteId, content) {
+  if (!GITHUB_TOKEN) {
+    throw new Error("GitHub token is missing.");
+  }
+
+  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes/${noteId}.txt`;
+  
+  // Prepare the content for GitHub (Base64 encoded)
+  const base64Content = btoa(content);
+
+  const payload = {
+    message: `Add note: ${noteId}`,
+    content: base64Content,
+    branch: "main"
+  };
+
+  const headers = {
+    "Authorization": `token ${GITHUB_TOKEN}`,
+    "Accept": "application/vnd.github.v3+json",
+    "Content-Type": "application/json"
+  };
+
+  const response = await fetch(apiUrl, {
+    method: "PUT",
+    headers: headers,
+    body: JSON.stringify(payload),
   });
 
-  if (res.ok) {
-    const json = await res.json();
-    return json?.data?.url ?? null;
+  if (!response.ok) {
+    throw new Error(`GitHub API error: ${response.statusText}`);
   }
 
-  return null;
+  const data = await response.json();
+  return data;
 }
 
-// Key verification
-async function verifyKey(key: string, hwid: string): Promise<boolean> {
-  const identifier = await hashHWID(hwid);
-  const nonce = generateNonce();
-
-  const url = `${hostname}/public/whitelist/${serviceId}?identifier=${identifier}&key=${key}&nonce=${nonce}`;
-
-  const res = await fetch(url);
-  let json;
-
-  try {
-    json = await res.json();
-  } catch {
-    return false;
-  }
-
-  if (res.ok && json.success) {
-    const valid = json.data.valid;
-    const hash = json.data.hash;
-
-    const computed = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(`${String(valid).toLowerCase()}-${nonce}-${secret}`)
-    );
-
-    const computedHash = Array.from(new Uint8Array(computed))
-      .map(b => b.toString(16).padStart(2, "0"))
-      .join("");
-
-    return valid === true && hash === computedHash;
-  }
-
-  return false;
-}
-
-// Main handler
-async function handleRequest(request: Request): Promise<Response> {
-  const url = new URL(request.url);
-  const pathname = url.pathname;
-
-  if (pathname === "/link") {
-    const hwid = url.searchParams.get("customHwid");
-    if (!hwid) {
-      return new Response(JSON.stringify({ success: false, error: "Missing customHwid" }), { status: 400 });
-    }
-
-    const link = await getLink(hwid);
-    return new Response(JSON.stringify({ success: !!link, link }), { headers: { "Content-Type": "application/json" } });
-  }
-
-  if (pathname === "/verify") {
-    const key = url.searchParams.get("key");
-    const hwid = url.searchParams.get("customHwid");
-
-    if (!key || !hwid) {
-      return new Response(JSON.stringify({ success: false, error: "Missing key or customHwid" }), { status: 400 });
-    }
-
-    const valid = await verifyKey(key, hwid);
-    return new Response(JSON.stringify({ success: valid }), { headers: { "Content-Type": "application/json" } });
-  }
-
-  return new Response("Not Found", { status: 404 });
-}
-
+// Event listener for the Cloudflare Worker
 addEventListener("fetch", event => {
   event.respondWith(handleRequest(event.request));
 });

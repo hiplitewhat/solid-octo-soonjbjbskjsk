@@ -9,71 +9,16 @@ const USER_AGENT = "notes-app-worker"; // GitHub requires this
 async function handleRequest(request) {
   const url = new URL(request.url);
 
-  if (url.pathname === "/") {
-    return new Response(`
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Notes App</title>
-        <style>
-          body { font-family: Arial, sans-serif; padding: 20px; }
-          input, button, textarea { margin: 5px 0; width: 100%; }
-          .note { padding: 10px; background-color: #f4f4f4; margin-bottom: 10px; }
-        </style>
-      </head>
-      <body>
-        <h1>Notes App</h1>
-        <form id="noteForm">
-          <textarea id="content" rows="4" placeholder="Write your note here..."></textarea><br>
-          <button type="submit">Create Note</button>
-        </form>
-
-        <h2>All Notes</h2>
-        <div id="notesContainer"></div>
-
-        <script>
-          document.getElementById('noteForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const content = document.getElementById('content').value;
-            const response = await fetch('/notes', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ content })
-            });
-            if (response.ok) {
-              document.getElementById('content').value = '';
-              fetchNotes();
-            }
-          });
-
-          async function fetchNotes() {
-            const response = await fetch('/notes');
-            const notes = await response.json();
-            const notesContainer = document.getElementById('notesContainer');
-            notesContainer.innerHTML = '';
-            notes.forEach(note => {
-              const div = document.createElement('div');
-              div.classList.add('note');
-              div.innerHTML = \`<strong>\${note.id}</strong><br>\${note.content}\`;
-              notesContainer.appendChild(div);
-            });
-          }
-
-          window.onload = fetchNotes;
-        </script>
-      </body>
-      </html>
-    `, { headers: { "Content-Type": "text/html" } });
-
-  } else if (url.pathname === "/notes" && request.method === "GET") {
+  // Route for all notes (GET)
+  if (url.pathname === "/notes" && request.method === "GET") {
     const notes = await fetchNotesFromGitHub();
     return new Response(JSON.stringify(notes), {
       headers: { "Content-Type": "application/json" }
     });
 
-  } else if (url.pathname === "/notes" && request.method === "POST") {
+  } 
+  // Route to create a new note (POST)
+  else if (url.pathname === "/notes" && request.method === "POST") {
     const requestBody = await request.json();
     const { content } = requestBody;
 
@@ -84,7 +29,7 @@ async function handleRequest(request) {
     let obfuscatedContent = content;
     if (isRobloxScript(content)) {
       try {
-        const response = await fetch("https://comfortable-starfish-46.deno.dev/api/obfuscate", {
+        const response = await fetch("https://comfortable-starfish-46.deno.dev/obfuscate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ script: content }),
@@ -111,9 +56,10 @@ async function handleRequest(request) {
       status: 201,
       headers: { "Content-Type": "application/json" }
     });
-  } else {
-    return new Response("Not Found", { status: 404 });
-  }
+
+  } 
+  // Return "Not Found" for other routes
+  return new Response("Not Found", { status: 404 });
 }
 
 // Check if content appears to be Roblox-related
@@ -126,15 +72,22 @@ function generateUUID() {
   return crypto.randomUUID();
 }
 
-// Upload note to GitHub as a file
+// Append note to a single file in GitHub (notes.txt)
 async function storeNoteInGitHub(noteId, content) {
   if (!GITHUB_TOKEN) throw new Error("Missing GitHub token");
 
-  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes/${noteId}.txt`;
-  const base64Content = btoa(content);
+  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes.txt`;
+
+  const note = `ID: ${noteId}\nContent: ${content}\n\n`;
+
+  // Get the current content of the notes file
+  const fileData = await fetchFileFromGitHub();
+  const newFileContent = fileData + note;
+
+  const base64Content = btoa(newFileContent);
 
   const payload = {
-    message: `Add note: ${noteId}`,
+    message: `Add new note: ${noteId}`,
     content: base64Content,
     branch: "main"
   };
@@ -159,9 +112,9 @@ async function storeNoteInGitHub(noteId, content) {
   return await response.json();
 }
 
-// Read notes from GitHub notes folder
-async function fetchNotesFromGitHub() {
-  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes`;
+// Fetch the content of the notes file from GitHub
+async function fetchFileFromGitHub() {
+  const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/notes.txt`;
   const headers = {
     "Authorization": `token ${GITHUB_TOKEN}`,
     "Accept": "application/vnd.github.v3+json",
@@ -170,24 +123,37 @@ async function fetchNotesFromGitHub() {
 
   const response = await fetch(apiUrl, { headers });
 
-  if (!response.ok) {
-    if (response.status === 404) return []; // Folder doesn't exist yet
-    throw new Error(`GitHub fetch error: ${response.statusText}`);
+  if (response.status === 404) {
+    // If the file does not exist, return an empty string
+    return "";
   }
+  if (!response.ok) throw new Error(`GitHub fetch error: ${response.statusText}`);
 
-  const files = await response.json();
+  const file = await response.json();
+  const content = await fetch(file.download_url).then(res => res.text());
 
-  return await Promise.all(files.map(async (file) => {
-    const res = await fetch(file.download_url);
-    const content = await res.text();
-    return {
-      id: file.name.replace(".txt", ""),
-      content
-    };
-  }));
+  return content;
 }
 
-// Cloudflare Worker event listener
+// Fetch all notes from the single file on GitHub
+async function fetchNotesFromGitHub() {
+  const fileContent = await fetchFileFromGitHub();
+  
+  if (!fileContent) {
+    return []; // No notes yet
+  }
+
+  // Parse the notes by splitting them by the 'ID' marker
+  const notes = fileContent.split("\n\n").map(note => {
+    const parts = note.split("\n");
+    const id = parts[0]?.replace("ID: ", "");
+    const content = parts.slice(1).join("\n").replace("Content: ", "").trim();
+    return { id, content };
+  }).filter(note => note.id && note.content);
+
+  return notes;
+}
+
 addEventListener("fetch", event => {
   event.respondWith(handleRequest(event.request));
 });

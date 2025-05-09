@@ -59,11 +59,13 @@ const HTML_PAGE = `
         noteLink.href = '/notes/' + note.id;  // Link to the HTML version of the note
         noteLink.textContent = note.title;
         div.appendChild(noteLink);
+        
+        // Add raw link back
         const rawLink = document.createElement('a');
         rawLink.href = '/notes/raw/' + note.id;  // Link to the raw version of the note
-        rawLink.textContent = " (Raw)";
-        rawLink.style.marginLeft = "10px";
+        rawLink.textContent = ' (Raw)';
         div.appendChild(rawLink);
+        
         notesContainer.appendChild(div);
       });
     }
@@ -149,18 +151,13 @@ async function handleRequest(request) {
     `, { headers: { "Content-Type": "text/html" } });
   }
 
-  // Serve a raw note (plain text)
+  // Serve raw content of a note
   if (url.pathname.startsWith("/notes/raw/") && request.method === "GET") {
-    const noteId = url.pathname.split("/")[2];  // Corrected to [2] instead of [3]
-    console.log("Raw Note ID:", noteId);  // Debugging: Log the extracted noteId
-
+    const noteId = url.pathname.split("/")[3];
     const note = await fetchNoteFromGitHub(noteId);
     if (!note) {
       return new Response("Note not found", { status: 404 });
     }
-
-    console.log("Raw Content for Note ID:", noteId, note.content);  // Debugging: Log the raw note content
-
     return new Response(note.content, {
       headers: { "Content-Type": "text/plain" }
     });

@@ -147,7 +147,7 @@ async function handleRequest(request) {
   if (url.pathname.startsWith("/notes/raw/") && request.method === "GET") {
     const userAgent = (request.headers.get("User-Agent") || "").toLowerCase();
     if (!userAgent.startsWith("roblox")) {
-      return new Response("Access denied. Only Roblox clients can access raw notes.", {
+      return new Response("Access denied. hnotes.", {
         status: 403,
         headers: { "Content-Type": "text/plain" }
       });

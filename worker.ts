@@ -1,21 +1,29 @@
-const GEMINI_API_KEY = ENV.GEMINI_API_KEY;  // Ensure GEMINI_API_KEY is stored as a secret in Cloudflare Workers environment.
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+interface Env {
+  GEMINI_API_KEY: string;
+}
 
-async function handleRequest(req) {
-  console.log("Requested URL:", req.url);  // Log the request URL for debugging
+export default {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return handleRequest(req, env);
+  },
+};
 
-  if (req.method === "POST" && req.url === "/filter") {
+async function handleRequest(req: Request, env: Env): Promise<Response> {
+  console.log("Requested URL:", req.url);
+
+  if (req.method === "POST" && new URL(req.url).pathname === "/filter") {
     try {
       const body = await req.json();
       const { text } = body;
 
-      if (!text) {
+      if (!text || typeof text !== "string" || text.trim() === "") {
         return new Response(
-          JSON.stringify({ error: "Text parameter is required" }),
+          JSON.stringify({ error: "Valid 'text' parameter is required" }),
           { status: 400, headers: { "Content-Type": "application/json" } }
         );
       }
 
+      const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${env.GEMINI_API_KEY}`;
       const prompt = `Censor any offensive or inappropriate words in this sentence: "${text}". Return only the censored version.`;
 
       const res = await fetch(GEMINI_URL, {
@@ -28,15 +36,24 @@ async function handleRequest(req) {
         }),
       });
 
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error("Gemini API error:", errorText);
+        throw new Error("Failed to fetch from Gemini API");
+      }
+
       const data = await res.json();
       const filtered = data.candidates?.[0]?.content?.parts?.[0]?.text || "Error filtering text.";
 
       return new Response(
-        JSON.stringify({
-          original: text,
-          filtered,
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
+        JSON.stringify({ original: text, filtered }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          },
+        }
       );
     } catch (error) {
       console.error("Error processing request:", error);
@@ -45,16 +62,10 @@ async function handleRequest(req) {
         { status: 500, headers: { "Content-Type": "application/json" } }
       );
     }
-  } else {
-    console.log("Request method or URL mismatch:", req.method, req.url);
-    
-    return new Response(
-      JSON.stringify({ error: "Not Found" }),
-      { status: 404, headers: { "Content-Type": "application/json" } }
-    );
   }
-}
 
-addEventListener("fetch", event => {
-  event.respondWith(handleRequest(event.request));
-});
+  return new Response(
+    JSON.stringify({ error: "Not Found" }),
+    { status: 404, headers: { "Content-Type": "application/json" } }
+  );
+}

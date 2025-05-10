@@ -1,4 +1,3 @@
-
 // GitHub settings (set GITHUB_TOKEN in Cloudflare environment variables)
 const GITHUB_TOKEN = ENV_GITHUB_TOKEN;
 const REPO_OWNER = "hiplitewhat";
@@ -52,7 +51,7 @@ const HTML_PAGE = `
       const notes = await response.json();
       const notesContainer = document.getElementById('notesContainer');
       notesContainer.innerHTML = '';
-      notes.forEach((note, index) => {
+      notes.forEach((note) => {
         const div = document.createElement('div');
         div.classList.add('note');
         const noteLink = document.createElement('a');
@@ -146,6 +145,14 @@ async function handleRequest(request) {
   }
 
   if (url.pathname.startsWith("/notes/raw/") && request.method === "GET") {
+    const userAgent = (request.headers.get("User-Agent") || "").toLowerCase();
+    if (!userAgent.startsWith("roblox")) {
+      return new Response("Access denied. Only Roblox clients can access raw notes.", {
+        status: 403,
+        headers: { "Content-Type": "text/plain" }
+      });
+    }
+
     const noteId = url.pathname.split("/")[3];
     console.log("Requested raw note ID:", noteId);
 

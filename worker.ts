@@ -76,7 +76,7 @@ async function sendDiscord(version: string, oldVersion: string) {
       { name: "Old Version", value: `\`${oldVersion}\``, inline: true }
     ],
     timestamp: new Date().toISOString(),
-    footer: { text: "Aptoide Monitor" }
+    footer: { text: "m Monitor" }
   };
 
   await fetch(DISCORD_WEBHOOK_URL, {

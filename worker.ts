@@ -60,7 +60,7 @@ async function updateGitVersion(newVersion: string, sha: string) {
     branch: GITHUB_BRANCH,
   };
 
-  const res = await fetch(url, {
+  let res = await fetch(url, {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${GITHUB_TOKEN}`,
@@ -69,6 +69,27 @@ async function updateGitVersion(newVersion: string, sha: string) {
     },
     body: JSON.stringify(body),
   });
+
+  if (res.status === 409) {
+    // If there's a 409 error, refetch the SHA and try again
+    console.log("Conflict detected (409). Refetching the latest version.txt...");
+
+    const { sha: latestSha } = await getGitVersion(); // Fetch the latest SHA
+    console.log("Latest SHA fetched:", latestSha);
+
+    // Retry the update with the new SHA
+    body.sha = latestSha; // Update the body with the new SHA
+
+    res = await fetch(url, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${GITHUB_TOKEN}`,
+        "Content-Type": "application/json",
+        "User-Agent": "AptoideMonitor/1.0"
+      },
+      body: JSON.stringify(body),
+    });
+  }
 
   if (!res.ok) {
     const text = await res.text();

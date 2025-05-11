@@ -1,11 +1,11 @@
-interface Env {
-  GITHUB_TOKEN: string;
-  DISCORD_WEBHOOK_URL: string;
-  GITHUB_REPO_OWNER: string;
-  GITHUB_REPO_NAME: string;
-  VERSION_FILE_PATH: string;
-  GITHUB_BRANCH: string;
-}
+const {
+  GITHUB_TOKEN,
+  DISCORD_WEBHOOK_URL,
+  GITHUB_REPO_OWNER,
+  GITHUB_REPO_NAME,
+  VERSION_FILE_PATH,
+  GITHUB_BRANCH
+} = process.env;
 
 // Get current version from Aptoide
 async function getAptoideVersion(): Promise<string> {
@@ -23,10 +23,16 @@ async function getGitVersion(): Promise<{ version: string, sha: string }> {
   const url = `https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/contents/${VERSION_FILE_PATH}?ref=${GITHUB_BRANCH}`;
 
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${GITHUB_TOKEN}` },
+    headers: {
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+      "User-Agent": "AptoideMonitor/1.0"
+    },
   });
 
-  if (!res.ok) throw new Error("Failed to fetch version.txt from GitHub");
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Failed to fetch version.txt from GitHub: ${res.status} - ${errorText}`);
+  }
 
   const json = await res.json();
   const content = atob(json.content);
@@ -49,13 +55,14 @@ async function updateGitVersion(newVersion: string, sha: string) {
     headers: {
       Authorization: `Bearer ${GITHUB_TOKEN}`,
       "Content-Type": "application/json",
+      "User-Agent": "AptoideMonitor/1.0"
     },
     body: JSON.stringify(body),
   });
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Failed to update version.txt: ${text}`);
+    throw new Error(`Failed to update version.txt: ${res.status} - ${text}`);
   }
 }
 
@@ -75,7 +82,10 @@ async function sendDiscord(version: string, oldVersion: string) {
   await fetch(DISCORD_WEBHOOK_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content: "New Roblox update detected!", embeds: [embed] }),
+    body: JSON.stringify({
+      content: "New Roblox update detected!",
+      embeds: [embed]
+    }),
   });
 }
 

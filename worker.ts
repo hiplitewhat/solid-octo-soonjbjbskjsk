@@ -1,11 +1,11 @@
-const {
-  GITHUB_TOKEN,
-  DISCORD_WEBHOOK_URL,
-  GITHUB_REPO_OWNER,
-  GITHUB_REPO_NAME,
-  VERSION_FILE_PATH,
-  GITHUB_BRANCH
-} = process.env;
+interface Env {
+  GITHUB_TOKEN: string;
+  DISCORD_WEBHOOK_URL: string;
+  GITHUB_REPO_OWNER: string;
+  GITHUB_REPO_NAME: string;
+  VERSION_FILE_PATH: string;
+  GITHUB_BRANCH: string;
+}
 
 // Get current version from Aptoide
 async function getAptoideVersion(): Promise<string> {

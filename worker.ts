@@ -119,7 +119,7 @@ async function sendDiscord(
       { name: "Old Version", value: `\`${oldVersion}\``, inline: true },
     ],
     timestamp: new Date().toISOString(),
-    footer: { text: "AptoideMonitor" },
+    footer: { text: "m" },
   };
 
   await fetch(webhookUrl, {

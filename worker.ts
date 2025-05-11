@@ -62,7 +62,7 @@ async function updateGitVersion(newAptoideVersion: string, newAptoideVngVersion:
   const url = `https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/contents/${VERSION_FILE_PATH}`;
 
   const body = {
-    message: `Update version to Aptoide: ${newAptoideVersion}, Aptoide VNG: ${newAptoideVngVersion}`,
+    message: `Update versions to Aptoide: ${newAptoideVersion}, Aptoide VNG: ${newAptoideVngVersion}`,
     content: btoa(`Aptoide Version: ${newAptoideVersion}\nAptoide VNG Version: ${newAptoideVngVersion}\n`),
     sha,
     branch: GITHUB_BRANCH,

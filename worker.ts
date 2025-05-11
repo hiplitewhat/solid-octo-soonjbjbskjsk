@@ -16,6 +16,7 @@ async function getAptoideVersions(): Promise<{ aptoideVersion: string, aptoideVn
     });
 
     const html = await res.text();
+    console.log(`HTML from ${url}:`, html); // Log the HTML for inspection
     const match = html.match(/(\d+\.\d+\.\d+(?:\.\d+)?)/);
     return match?.[1]?.trim() || "Unknown";
   };
@@ -39,6 +40,7 @@ async function getGitVersion(): Promise<{ version: string, sha: string }> {
 
   if (!res.ok) {
     const errorText = await res.text();
+    console.log("GitHub request failed:", res.status, errorText); // Log the error response
     throw new Error(`Failed to fetch version.txt from GitHub: ${res.status} - ${errorText}`);
   }
 
@@ -70,8 +72,11 @@ async function updateGitVersion(newVersion: string, sha: string) {
 
   if (!res.ok) {
     const text = await res.text();
+    console.log("GitHub update failed:", res.status, text); // Log the failure message
     throw new Error(`Failed to update version.txt: ${res.status} - ${text}`);
   }
+
+  console.log("Successfully updated version.txt on GitHub."); // Log success
 }
 
 // Send notification to Discord with different webhooks based on version source
@@ -84,10 +89,10 @@ async function sendDiscord(version: string, oldVersion: string, webhookUrl: stri
       { name: "Old Version", value: `\`${oldVersion}\``, inline: true }
     ],
     timestamp: new Date().toISOString(),
-    footer: { text: "m Monitor" }
+    footer: { text: "AptoideMonitor" }
   };
 
-  await fetch(webhookUrl, {
+  const discordResponse = await fetch(webhookUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -95,6 +100,10 @@ async function sendDiscord(version: string, oldVersion: string, webhookUrl: stri
       embeds: [embed]
     }),
   });
+
+  console.log("Discord response status:", discordResponse.status); // Log the Discord response
+  const discordBody = await discordResponse.text();
+  console.log("Discord response body:", discordBody); // Log the Discord response body
 }
 
 // Main handler
@@ -102,6 +111,10 @@ async function handleRequest(): Promise<Response> {
   try {
     const { aptoideVersion, aptoideVngVersion } = await getAptoideVersions();
     const { version: gitVersion, sha } = await getGitVersion();
+
+    console.log("Aptoide Version:", aptoideVersion); // Log Aptoide version
+    console.log("Aptoide VNG Version:", aptoideVngVersion); // Log Aptoide VNG version
+    console.log("GitHub Version:", gitVersion); // Log GitHub version
 
     let updated = false;
 
@@ -111,6 +124,7 @@ async function handleRequest(): Promise<Response> {
 
     // Check and update the Aptoide version
     if (aptoideVersion !== "Unknown" && aptoideVersion !== gitVersion) {
+      console.log("Updating Aptoide version...");
       await sendDiscord(aptoideVersion, gitVersion, aptoideWebhookUrl);
       await updateGitVersion(aptoideVersion, sha);
       updated = true;
@@ -118,6 +132,7 @@ async function handleRequest(): Promise<Response> {
 
     // Check and update the Aptoide VNG version
     if (aptoideVngVersion !== "Unknown" && aptoideVngVersion !== gitVersion) {
+      console.log("Updating Aptoide VNG version...");
       await sendDiscord(aptoideVngVersion, gitVersion, aptoideVngWebhookUrl);
       await updateGitVersion(aptoideVngVersion, sha);
       updated = true;
@@ -130,6 +145,7 @@ async function handleRequest(): Promise<Response> {
     return new Response(`No update. Current version: ${gitVersion}`, { status: 200 });
 
   } catch (err: any) {
+    console.log("Error:", err.message); // Log the error message
     return new Response(`Error: ${err.message}`, { status: 500 });
   }
 }

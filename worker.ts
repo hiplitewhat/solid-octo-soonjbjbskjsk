@@ -16,7 +16,6 @@ async function getAptoideVersions(): Promise<{ aptoideVersion: string, aptoideVn
     });
 
     const html = await res.text();
-    console.log(`HTML from ${url}:`, html); // Log the HTML for inspection
     const match = html.match(/(\d+\.\d+\.\d+(?:\.\d+)?)/);
     return match?.[1]?.trim() || "Unknown";
   };
@@ -28,7 +27,7 @@ async function getAptoideVersions(): Promise<{ aptoideVersion: string, aptoideVn
 }
 
 // Get current version from GitHub repo (version.txt)
-async function getGitVersion(): Promise<{ version: string, sha: string }> {
+async function getGitVersion(): Promise<{ aptoideVersion: string, aptoideVngVersion: string, sha: string }> {
   const url = `https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/contents/${VERSION_FILE_PATH}?ref=${GITHUB_BRANCH}`;
 
   const res = await fetch(url, {
@@ -40,22 +39,31 @@ async function getGitVersion(): Promise<{ version: string, sha: string }> {
 
   if (!res.ok) {
     const errorText = await res.text();
-    console.log("GitHub request failed:", res.status, errorText); // Log the error response
     throw new Error(`Failed to fetch version.txt from GitHub: ${res.status} - ${errorText}`);
   }
 
   const json = await res.json();
   const content = atob(json.content);
-  return { version: content.trim(), sha: json.sha };
+
+  // Parse the content into individual versions (Aptoide and Aptoide VNG)
+  const versions = content.split("\n").reduce((acc: { aptoideVersion: string, aptoideVngVersion: string }, line) => {
+    const [key, value] = line.split(":");
+    if (key && value) {
+      acc[key.trim()] = value.trim();
+    }
+    return acc;
+  }, { aptoideVersion: "Unknown", aptoideVngVersion: "Unknown" });
+
+  return { ...versions, sha: json.sha };
 }
 
 // Update version.txt on GitHub
-async function updateGitVersion(newVersion: string, sha: string) {
+async function updateGitVersion(newAptoideVersion: string, newAptoideVngVersion: string, sha: string) {
   const url = `https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/contents/${VERSION_FILE_PATH}`;
 
   const body = {
-    message: `Update version to ${newVersion}`,
-    content: btoa(newVersion + "\n"),
+    message: `Update version to Aptoide: ${newAptoideVersion}, Aptoide VNG: ${newAptoideVngVersion}`,
+    content: btoa(`Aptoide Version: ${newAptoideVersion}\nAptoide VNG Version: ${newAptoideVngVersion}\n`),
     sha,
     branch: GITHUB_BRANCH,
   };
@@ -72,12 +80,7 @@ async function updateGitVersion(newVersion: string, sha: string) {
 
   if (res.status === 409) {
     // If there's a 409 error, refetch the SHA and try again
-    console.log("Conflict detected (409). Refetching the latest version.txt...");
-
     const { sha: latestSha } = await getGitVersion(); // Fetch the latest SHA
-    console.log("Latest SHA fetched:", latestSha);
-
-    // Retry the update with the new SHA
     body.sha = latestSha; // Update the body with the new SHA
 
     res = await fetch(url, {
@@ -93,11 +96,8 @@ async function updateGitVersion(newVersion: string, sha: string) {
 
   if (!res.ok) {
     const text = await res.text();
-    console.log("GitHub update failed:", res.status, text); // Log the failure message
     throw new Error(`Failed to update version.txt: ${res.status} - ${text}`);
   }
-
-  console.log("Successfully updated version.txt on GitHub."); // Log success
 }
 
 // Send notification to Discord with different webhooks based on version source
@@ -113,7 +113,7 @@ async function sendDiscord(version: string, oldVersion: string, webhookUrl: stri
     footer: { text: "AptoideMonitor" }
   };
 
-  const discordResponse = await fetch(webhookUrl, {
+  await fetch(webhookUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -121,21 +121,13 @@ async function sendDiscord(version: string, oldVersion: string, webhookUrl: stri
       embeds: [embed]
     }),
   });
-
-  console.log("Discord response status:", discordResponse.status); // Log the Discord response
-  const discordBody = await discordResponse.text();
-  console.log("Discord response body:", discordBody); // Log the Discord response body
 }
 
 // Main handler
 async function handleRequest(): Promise<Response> {
   try {
     const { aptoideVersion, aptoideVngVersion } = await getAptoideVersions();
-    const { version: gitVersion, sha } = await getGitVersion();
-
-    console.log("Aptoide Version:", aptoideVersion); // Log Aptoide version
-    console.log("Aptoide VNG Version:", aptoideVngVersion); // Log Aptoide VNG version
-    console.log("GitHub Version:", gitVersion); // Log GitHub version
+    const { aptoideVersion: gitAptoideVersion, aptoideVngVersion: gitAptoideVngVersion, sha } = await getGitVersion();
 
     let updated = false;
 
@@ -144,29 +136,26 @@ async function handleRequest(): Promise<Response> {
     const aptoideVngWebhookUrl = DISCORD_WEBHOOK_URL_APTOIDE_VNG; // Second Aptoide URL webhook from environment
 
     // Check and update the Aptoide version
-    if (aptoideVersion !== "Unknown" && aptoideVersion !== gitVersion) {
-      console.log("Updating Aptoide version...");
-      await sendDiscord(aptoideVersion, gitVersion, aptoideWebhookUrl);
-      await updateGitVersion(aptoideVersion, sha);
+    if (aptoideVersion !== "Unknown" && aptoideVersion !== gitAptoideVersion) {
+      await sendDiscord(aptoideVersion, gitAptoideVersion, aptoideWebhookUrl);
       updated = true;
     }
 
     // Check and update the Aptoide VNG version
-    if (aptoideVngVersion !== "Unknown" && aptoideVngVersion !== gitVersion) {
-      console.log("Updating Aptoide VNG version...");
-      await sendDiscord(aptoideVngVersion, gitVersion, aptoideVngWebhookUrl);
-      await updateGitVersion(aptoideVngVersion, sha);
+    if (aptoideVngVersion !== "Unknown" && aptoideVngVersion !== gitAptoideVngVersion) {
+      await sendDiscord(aptoideVngVersion, gitAptoideVngVersion, aptoideVngWebhookUrl);
       updated = true;
     }
 
     if (updated) {
-      return new Response(`Updated version(s) to Aptoide: ${aptoideVersion}, VNG: ${aptoideVngVersion}`, { status: 200 });
+      // Update the version.txt file with both versions
+      await updateGitVersion(aptoideVersion, aptoideVngVersion, sha);
+      return new Response(`Updated versions: Aptoide ${aptoideVersion}, VNG ${aptoideVngVersion}`, { status: 200 });
     }
 
-    return new Response(`No update. Current version: ${gitVersion}`, { status: 200 });
+    return new Response(`No update. Current versions: Aptoide ${gitAptoideVersion}, VNG ${gitAptoideVngVersion}`, { status: 200 });
 
   } catch (err: any) {
-    console.log("Error:", err.message); // Log the error message
     return new Response(`Error: ${err.message}`, { status: 500 });
   }
 }

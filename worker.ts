@@ -1,160 +1,103 @@
-// Cloudflare Worker to monitor Roblox version updates and send to Discord webhook
+const {
+  GITHUB_TOKEN,
+  DISCORD_WEBHOOK_URL,
+  GITHUB_REPO_OWNER,
+  GITHUB_REPO_NAME,
+  VERSION_FILE_PATH,
+  GITHUB_BRANCH
+} = process.env;
 
-// Cloudflare KV binding for storing the version
-const VERSION_KV: KVNamespace;
-
-// Get your Webhook URL from the environment variables
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "your-webhook-url-here"; 
-
-// Fetch the version from Aptoide
+// Get current version from Aptoide
 async function getAptoideVersion(): Promise<string> {
-  const url = "https://roblox.en.aptoide.com/app";
+  const res = await fetch("https://roblox.en.aptoide.com/app", {
+    headers: { "User-Agent": "Mozilla/5.0" },
+  });
 
-  try {
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch Aptoide page. Status: ${response.status}`);
-    }
-
-    const html = await response.text();
-    const match = html.match(/(\d+\.\d+\.\d+(?:\.\d+)?)/);
-    if (match && match[1]) {
-      return match[1].trim();
-    }
-
-    console.warn("Aptoide version not found.");
-    return "Unknown";
-  } catch (err) {
-    console.error("Error scraping Aptoide version:", err);
-    return "Error";
-  }
+  const html = await res.text();
+  const match = html.match(/(\d+\.\d+\.\d+(?:\.\d+)?)/);
+  return match?.[1]?.trim() || "Unknown";
 }
 
-// Save the version to KV storage
-async function saveVersionToKV(version: string) {
-  try {
-    await VERSION_KV.put("currentVersion", version);
-    console.log(`Version ${version} saved to KV storage.`);
-  } catch (err) {
-    console.error("Error saving version to KV storage:", err);
-  }
+// Get current version from GitHub repo (version.txt)
+async function getGitVersion(): Promise<{ version: string, sha: string }> {
+  const url = `https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/contents/${VERSION_FILE_PATH}?ref=${GITHUB_BRANCH}`;
+
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${GITHUB_TOKEN}` },
+  });
+
+  if (!res.ok) throw new Error("Failed to fetch version.txt from GitHub");
+
+  const json = await res.json();
+  const content = atob(json.content);
+  return { version: content.trim(), sha: json.sha };
 }
 
-// Get the stored version from KV storage
-async function getStoredVersionFromKV(): Promise<string | null> {
-  try {
-    const storedVersion = await VERSION_KV.get("currentVersion");
-    return storedVersion;
-  } catch (err) {
-    console.error("Error fetching version from KV storage:", err);
-    return null;
-  }
-}
+// Update version.txt on GitHub
+async function updateGitVersion(newVersion: string, sha: string) {
+  const url = `https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/contents/${VERSION_FILE_PATH}`;
 
-// Send a message to Discord Webhook
-async function sendWebhookNotification(content: string, embed: object) {
-  const payload = {
-    content: content, // Optional: message text
-    embeds: [embed], // Embed content
+  const body = {
+    message: `Update version to ${newVersion}`,
+    content: btoa(newVersion + "\n"),
+    sha,
+    branch: GITHUB_BRANCH,
   };
 
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to update version.txt: ${text}`);
+  }
+}
+
+// Send notification to Discord
+async function sendDiscord(version: string, oldVersion: string) {
+  const embed = {
+    title: "Roblox Android Version Updated!",
+    color: 0x00ff00,
+    fields: [
+      { name: "New Version", value: `\`${version}\``, inline: true },
+      { name: "Old Version", value: `\`${oldVersion}\``, inline: true }
+    ],
+    timestamp: new Date().toISOString(),
+    footer: { text: "Aptoide Monitor" }
+  };
+
+  await fetch(DISCORD_WEBHOOK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content: "New Roblox update detected!", embeds: [embed] }),
+  });
+}
+
+// Main handler
+async function handleRequest(): Promise<Response> {
   try {
-    const response = await fetch(DISCORD_WEBHOOK_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
+    const aptVersion = await getAptoideVersion();
+    const { version: gitVersion, sha } = await getGitVersion();
 
-    if (!response.ok) {
-      console.error("Failed to send webhook notification:", response.statusText);
-    } else {
-      console.log("Webhook notification sent successfully.");
+    if (aptVersion !== "Unknown" && aptVersion !== gitVersion) {
+      await sendDiscord(aptVersion, gitVersion);
+      await updateGitVersion(aptVersion, sha);
+      return new Response(`Updated version to ${aptVersion}`, { status: 200 });
     }
-  } catch (error) {
-    console.error("Error sending webhook notification:", error);
+
+    return new Response(`No update. Current version: ${gitVersion}`, { status: 200 });
+
+  } catch (err: any) {
+    return new Response(`Error: ${err.message}`, { status: 500 });
   }
 }
 
-// Handle the version monitoring process
-async function startVersionMonitor() {
-  const INTERVAL_MS = 3600000; // 1 hour interval for checking
-  let lastVersion = await getStoredVersionFromKV() ?? "Unknown";
-
-  console.log("Monitoring started...");
-
-  // Monitor the version in intervals
-  setInterval(async () => {
-    try {
-      const aptVersion = await getAptoideVersion();
-      const shouldUpdate = aptVersion !== lastVersion && aptVersion !== "Error";
-
-      if (shouldUpdate) {
-        console.log("Version change detected.");
-
-        const embed = {
-          title: "Roblox Android Version Updated!",
-          color: 0x00ff00,
-          fields: [
-            {
-              name: "Current Version",
-              value: `\`${aptVersion}\``,
-              inline: true,
-            },
-            {
-              name: "Previous Version",
-              value: `\`${lastVersion ?? "unknown"}\``,
-              inline: true,
-            },
-          ],
-          timestamp: new Date(),
-          footer: {
-            text: "Automated Update Monitor",
-          },
-        };
-
-        await sendWebhookNotification(
-          "Roblox Android version updated!",
-          embed
-        );
-
-        lastVersion = aptVersion; // Update last version after sending
-        await saveVersionToKV(aptVersion); // Save updated version to KV
-      }
-    } catch (err) {
-      console.error("Monitor error:", err);
-    }
-  }, INTERVAL_MS);
-}
-
-// Main handler for incoming requests
-async function handleRequest(request: Request): Promise<Response> {
-  if (request.method === "GET") {
-    // Respond with the current version status
-    const currentVersion = await getStoredVersionFromKV();
-    return new Response(`Current Version: ${currentVersion || "Unknown"}`, {
-      status: 200,
-    });
-  }
-
-  if (request.method === "POST") {
-    // Trigger version monitor immediately on POST request
-    await startVersionMonitor();
-    return new Response("Monitoring triggered.", {
-      status: 200,
-    });
-  }
-
-  return new Response("Invalid request method.", { status: 405 });
-}
-
-// Cloudflare Worker entry point
-addEventListener("fetch", (event) => {
-  event.respondWith(handleRequest(event.request));
+addEventListener("fetch", event => {
+  event.respondWith(handleRequest());
 });

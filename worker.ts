@@ -1,21 +1,29 @@
 interface Env {
   GITHUB_TOKEN: string;
-  DISCORD_WEBHOOK_URL: string;
+  DISCORD_WEBHOOK_URL_APTOIDE: string;
+  DISCORD_WEBHOOK_URL_APTOIDE_VNG: string;
   GITHUB_REPO_OWNER: string;
   GITHUB_REPO_NAME: string;
   VERSION_FILE_PATH: string;
   GITHUB_BRANCH: string;
 }
 
-// Get current version from Aptoide
-async function getAptoideVersion(): Promise<string> {
-  const res = await fetch("https://roblox.en.aptoide.com/app", {
-    headers: { "User-Agent": "Mozilla/5.0" },
-  });
+// Get current version from both Aptoide URLs
+async function getAptoideVersions(): Promise<{ aptoideVersion: string, aptoideVngVersion: string }> {
+  const fetchVersion = async (url: string): Promise<string> => {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0" },
+    });
 
-  const html = await res.text();
-  const match = html.match(/(\d+\.\d+\.\d+(?:\.\d+)?)/);
-  return match?.[1]?.trim() || "Unknown";
+    const html = await res.text();
+    const match = html.match(/(\d+\.\d+\.\d+(?:\.\d+)?)/);
+    return match?.[1]?.trim() || "Unknown";
+  };
+
+  const aptoideVersion = await fetchVersion("https://roblox.en.aptoide.com/app");
+  const aptoideVngVersion = await fetchVersion("https://roblox-vng.en.aptoide.com/app");
+
+  return { aptoideVersion, aptoideVngVersion };
 }
 
 // Get current version from GitHub repo (version.txt)
@@ -66,8 +74,8 @@ async function updateGitVersion(newVersion: string, sha: string) {
   }
 }
 
-// Send notification to Discord
-async function sendDiscord(version: string, oldVersion: string) {
+// Send notification to Discord with different webhooks based on version source
+async function sendDiscord(version: string, oldVersion: string, webhookUrl: string) {
   const embed = {
     title: "Roblox Android Version Updated!",
     color: 0x00ff00,
@@ -79,7 +87,7 @@ async function sendDiscord(version: string, oldVersion: string) {
     footer: { text: "m Monitor" }
   };
 
-  await fetch(DISCORD_WEBHOOK_URL, {
+  await fetch(webhookUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -92,13 +100,31 @@ async function sendDiscord(version: string, oldVersion: string) {
 // Main handler
 async function handleRequest(): Promise<Response> {
   try {
-    const aptVersion = await getAptoideVersion();
+    const { aptoideVersion, aptoideVngVersion } = await getAptoideVersions();
     const { version: gitVersion, sha } = await getGitVersion();
 
-    if (aptVersion !== "Unknown" && aptVersion !== gitVersion) {
-      await sendDiscord(aptVersion, gitVersion);
-      await updateGitVersion(aptVersion, sha);
-      return new Response(`Updated version to ${aptVersion}`, { status: 200 });
+    let updated = false;
+
+    // Define the webhook URLs from environment variables
+    const aptoideWebhookUrl = DISCORD_WEBHOOK_URL_APTOIDE; // First Aptoide URL webhook from environment
+    const aptoideVngWebhookUrl = DISCORD_WEBHOOK_URL_APTOIDE_VNG; // Second Aptoide URL webhook from environment
+
+    // Check and update the Aptoide version
+    if (aptoideVersion !== "Unknown" && aptoideVersion !== gitVersion) {
+      await sendDiscord(aptoideVersion, gitVersion, aptoideWebhookUrl);
+      await updateGitVersion(aptoideVersion, sha);
+      updated = true;
+    }
+
+    // Check and update the Aptoide VNG version
+    if (aptoideVngVersion !== "Unknown" && aptoideVngVersion !== gitVersion) {
+      await sendDiscord(aptoideVngVersion, gitVersion, aptoideVngWebhookUrl);
+      await updateGitVersion(aptoideVngVersion, sha);
+      updated = true;
+    }
+
+    if (updated) {
+      return new Response(`Updated version(s) to Aptoide: ${aptoideVersion}, VNG: ${aptoideVngVersion}`, { status: 200 });
     }
 
     return new Response(`No update. Current version: ${gitVersion}`, { status: 200 });

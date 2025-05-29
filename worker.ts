@@ -5,7 +5,7 @@ export interface Env {
   GITHUB_REPO_OWNER: string;
   GITHUB_REPO_NAME: string;
   GITHUB_BRANCH: string;
-  NOTES_POST_PASSWORD: string;  // Added env var for password protection
+  NOTES_POST_PASSWORD: string;
 }
 
 interface Note {
@@ -16,7 +16,6 @@ interface Note {
 }
 
 const router = Router();
-
 let notes: Note[] = [];
 
 function isRobloxScript(content: string): boolean {
@@ -61,61 +60,64 @@ async function filterText(text: string): Promise<string> {
   }
 }
 
-async function storeNoteGithub(env: Env, id: string, title: string, content: string): Promise<void> {
-  const path = `notes/${id}.txt`;
+async function storeNotesInGithubFile(env: Env, updatedNotes: Note[]): Promise<void> {
+  const path = `notes.json`;
   const url = `https://api.github.com/repos/${env.GITHUB_REPO_OWNER}/${env.GITHUB_REPO_NAME}/contents/${path}`;
-  const body = `Title: ${title}\n\n${content}`;
-  const encoded = btoa(body);
 
-  const res = await fetch(url, {
+  // Fetch existing file to get SHA
+  let sha: string | undefined;
+  const getRes = await fetch(url, {
+    headers: {
+      Authorization: `token ${env.GITHUB_TOKEN}`,
+      'User-Agent': 'MyNotesApp/1.0',
+    },
+  });
+
+  if (getRes.ok) {
+    const existing = await getRes.json();
+    sha = existing.sha;
+  }
+
+  const encoded = btoa(JSON.stringify(updatedNotes, null, 2));
+
+  const putRes = await fetch(url, {
     method: 'PUT',
     headers: {
       Authorization: `token ${env.GITHUB_TOKEN}`,
       Accept: 'application/vnd.github.v3+json',
-      'User-Agent': 'MyNotesApp/1.0', // Added User-Agent header
+      'User-Agent': 'MyNotesApp/1.0',
     },
     body: JSON.stringify({
-      message: `Add note: ${id}`,
+      message: 'Update notes',
       content: encoded,
       branch: env.GITHUB_BRANCH,
+      ...(sha && { sha }),
     }),
   });
 
-  if (!res.ok) {
-    const text = await res.text();
+  if (!putRes.ok) {
+    const text = await putRes.text();
     throw new Error(`GitHub API error: ${text}`);
   }
 }
 
 async function loadNotesFromGithub(env: Env): Promise<void> {
-  notes = [];
-  const url = `https://api.github.com/repos/${env.GITHUB_REPO_OWNER}/${env.GITHUB_REPO_NAME}/contents/notes?ref=${env.GITHUB_BRANCH}`;
+  const url = `https://api.github.com/repos/${env.GITHUB_REPO_OWNER}/${env.GITHUB_REPO_NAME}/contents/notes.json?ref=${env.GITHUB_BRANCH}`;
   const res = await fetch(url, {
     headers: {
       Authorization: `token ${env.GITHUB_TOKEN}`,
-      'User-Agent': 'MyNotesApp/1.0',  // Added User-Agent header
+      'User-Agent': 'MyNotesApp/1.0',
     },
   });
+
   if (!res.ok) {
-    console.error('Failed to load notes:', await res.text());
+    console.warn('Could not load notes:', await res.text());
     return;
   }
-  const files = await res.json();
-  for (const file of files) {
-    if (file.name.endsWith('.txt')) {
-      const fileRes = await fetch(file.download_url);
-      const raw = await fileRes.text();
-      const [titleLine, , ...rest] = raw.split('\n');
-      const title = titleLine.replace(/^Title:\s*/, '') || 'Untitled';
-      const content = rest.join('\n');
-      notes.push({
-        id: file.name.replace('.txt', ''),
-        title,
-        content,
-        createdAt: new Date().toISOString(),
-      });
-    }
-  }
+
+  const file = await res.json();
+  const content = atob(file.content);
+  notes = JSON.parse(content);
 }
 
 function renderHTML(noteList: Note[], sortOrder: 'asc' | 'desc' = 'desc'): string {
@@ -128,38 +130,38 @@ function renderHTML(noteList: Note[], sortOrder: 'asc' | 'desc' = 'desc'): strin
   const notesHtml = sortedNotes
     .map(
       (note) => `
-    <div class="note">
-      <strong><a href="/notes/${note.id}" target="_blank">${note.title || 'Untitled'}</a></strong><br>
-      ID: ${note.id}
-    </div>`,
+      <div class="note">
+        <strong><a href="/notes/${note.id}" target="_blank">${note.title || 'Untitled'}</a></strong><br>
+        ID: ${note.id}
+      </div>`,
     )
     .join('');
 
   return `
-  <!DOCTYPE html>
-  <html>
-    <head>
-      <title>Notes App</title>
-      <style>
-        body { font-family: Arial; padding: 20px; }
-        .note { padding: 10px; background: #f0f0f0; margin: 10px 0; }
-      </style>
-    </head>
-    <body>
-      <h1>Notes</h1>
-      <form method="POST" action="/notes">
-        <input type="password" name="password" placeholder="Password" required><br><br>
-        <input type="text" name="title" placeholder="Title" required><br><br>
-        <textarea name="content" rows="4" cols="50" placeholder="Write your note..." required></textarea><br>
-        <button type="submit">Save Note</button>
-      </form>
-      <p>Sort: 
-        <a href="/?sort=desc">Newest First</a> | 
-        <a href="/?sort=asc">Oldest First</a>
-      </p>
-      <div>${notesHtml}</div>
-    </body>
-  </html>`;
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Notes App</title>
+        <style>
+          body { font-family: Arial; padding: 20px; }
+          .note { padding: 10px; background: #f0f0f0; margin: 10px 0; }
+        </style>
+      </head>
+      <body>
+        <h1>Notes</h1>
+        <form method="POST" action="/notes">
+          <input type="password" name="password" placeholder="Password" required><br><br>
+          <input type="text" name="title" placeholder="Title" required><br><br>
+          <textarea name="content" rows="4" cols="50" placeholder="Write your note..." required></textarea><br>
+          <button type="submit">Save Note</button>
+        </form>
+        <p>Sort: 
+          <a href="/?sort=desc">Newest First</a> | 
+          <a href="/?sort=asc">Oldest First</a>
+        </p>
+        <div>${notesHtml}</div>
+      </body>
+    </html>`;
 }
 
 router.get('/', async (request, env) => {
@@ -176,7 +178,6 @@ router.post('/notes', async (request, env) => {
   let title = formData.get('title');
   let content = formData.get('content');
 
-  // Check password
   if (typeof password !== 'string' || password !== env.NOTES_POST_PASSWORD) {
     return new Response('Unauthorized: Invalid password', { status: 401 });
   }
@@ -184,6 +185,7 @@ router.post('/notes', async (request, env) => {
   if (typeof content !== 'string' || content.trim() === '') {
     return new Response('Content is required', { status: 400 });
   }
+
   if (typeof title !== 'string' || title.trim() === '') {
     title = 'Untitled';
   }
@@ -210,7 +212,7 @@ router.post('/notes', async (request, env) => {
   notes.push(note);
 
   try {
-    await storeNoteGithub(env, id, title, content);
+    await storeNotesInGithubFile(env, notes);
     return Response.redirect(new URL('/', request.url).toString());
   } catch (err) {
     return new Response(`GitHub error: ${(err as Error).message}`, { status: 500 });
@@ -222,11 +224,13 @@ router.get('/notes/:id', (request, env, ctx) => {
   if (!userAgent.includes('Roblox')) {
     return new Response('Access denied', { status: 403 });
   }
+
   const { id } = request.params as { id: string };
   const note = notes.find((n) => n.id === id);
   if (!note) {
     return new Response('Not found', { status: 404 });
   }
+
   return new Response(note.content, { headers: { 'Content-Type': 'text/plain' } });
 });
 

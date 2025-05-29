@@ -17,6 +17,7 @@ interface Note {
 
 const router = Router();
 let notes: Note[] = [];
+let notesLoaded = false;
 
 const isRobloxScript = (content: string) =>
   content.includes('game') || content.includes('script');
@@ -96,6 +97,8 @@ async function storeNotesInGithubFile(env: Env, updatedNotes: Note[]) {
 }
 
 async function loadNotesFromGithub(env: Env): Promise<void> {
+  if (notesLoaded) return;
+
   const url = `https://api.github.com/repos/${env.GITHUB_REPO_OWNER}/${env.GITHUB_REPO_NAME}/contents/notes.json`;
   const res = await fetch(url, {
     headers: {
@@ -112,6 +115,7 @@ async function loadNotesFromGithub(env: Env): Promise<void> {
       id,
       ...note,
     }));
+    notesLoaded = true;
   }
 }
 
@@ -154,10 +158,18 @@ router.post('/notes', async (req, env: Env) => {
   });
 });
 
+// Optional: Manual reload route (dev use)
+router.get('/reload', async (_, env: Env) => {
+  notesLoaded = false;
+  await loadNotesFromGithub(env);
+  return new Response('Notes reloaded from GitHub.', { status: 200 });
+});
+
 // Required fetch handler
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    await loadNotesFromGithub(env); // load notes per request (optional)
-    return router.handle(request, env, ctx);
+    await loadNotesFromGithub(env);
+    const res = await router.handle(request, env, ctx);
+    return res ?? new Response('Not found', { status: 404 });
   },
 };

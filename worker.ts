@@ -1,4 +1,3 @@
-
 import { Router } from 'itty-router';
 
 export interface Env {
@@ -95,3 +94,70 @@ async function storeNotesInGithubFile(env: Env, updatedNotes: Note[]) {
     throw new Error(`GitHub API error: ${text}`);
   }
 }
+
+async function loadNotesFromGithub(env: Env): Promise<void> {
+  const url = `https://api.github.com/repos/${env.GITHUB_REPO_OWNER}/${env.GITHUB_REPO_NAME}/contents/notes.json`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `token ${env.GITHUB_TOKEN}`,
+      'User-Agent': 'MyNotesApp/1.0',
+    },
+  });
+
+  if (res.ok) {
+    const data = await res.json();
+    const content = atob(data.content);
+    const parsed = JSON.parse(content);
+    notes = Object.entries(parsed).map(([id, note]: [string, any]) => ({
+      id,
+      ...note,
+    }));
+  }
+}
+
+// Routes
+
+router.get('/notes', () => {
+  return new Response(JSON.stringify(notes), {
+    headers: { 'Content-Type': 'application/json' },
+  });
+});
+
+router.post('/notes', async (req, env: Env) => {
+  const body = await req.json();
+
+  if (body.password !== env.NOTES_POST_PASSWORD) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+
+  let { title, content } = body;
+
+  if (isRobloxScript(content)) {
+    content = await obfuscate(content);
+  } else {
+    content = await filterText(content);
+  }
+
+  const newNote: Note = {
+    id: crypto.randomUUID(),
+    title,
+    content,
+    createdAt: new Date().toISOString(),
+  };
+
+  notes.push(newNote);
+  await storeNotesInGithubFile(env, notes);
+
+  return new Response(JSON.stringify(newNote), {
+    headers: { 'Content-Type': 'application/json' },
+    status: 201,
+  });
+});
+
+// Required fetch handler
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    await loadNotesFromGithub(env); // load notes per request (optional)
+    return router.handle(request, env, ctx);
+  },
+};

@@ -60,47 +60,7 @@ async function filterText(text: string): Promise<string> {
   }
 }
 
-async function storeNotesInGithubFile(env: Env, updatedNotes: Note[]): Promise<void> {
-  const path = `notes.json`;
-  const url = `https://api.github.com/repos/${env.GITHUB_REPO_OWNER}/${env.GITHUB_REPO_NAME}/contents/${path}`;
-
-  // Fetch existing file to get SHA
-  let sha: string | undefined;
-  const getRes = await fetch(url, {
-    headers: {
-      Authorization: `token ${env.GITHUB_TOKEN}`,
-      'User-Agent': 'MyNotesApp/1.0',
-    },
-  });
-
-  if (getRes.ok) {
-    const existing = await getRes.json();
-    sha = existing.sha;
-  }
-
-  const encoded = btoa(JSON.stringify(updatedNotes, null, 2));
-
-  const putRes = await fetch(url, {
-    method: 'PUT',
-    headers: {
-      Authorization: `token ${env.GITHUB_TOKEN}`,
-      Accept: 'application/vnd.github.v3+json',
-      'User-Agent': 'MyNotesApp/1.0',
-    },
-    body: JSON.stringify({
-      message: 'Update notes',
-      content: encoded,
-      branch: env.GITHUB_BRANCH,
-      ...(sha && { sha }),
-    }),
-  });
-
-  if (!putRes.ok) {
-    const text = await putRes.text();
-    throw new Error(`GitHub API error: ${text}`);
-  }
-}
-
+// Load notes from GitHub once into memory at start or when empty
 async function loadNotesFromGithub(env: Env): Promise<void> {
   const url = `https://api.github.com/repos/${env.GITHUB_REPO_OWNER}/${env.GITHUB_REPO_NAME}/contents/notes.json?ref=${env.GITHUB_BRANCH}`;
   const res = await fetch(url, {
@@ -112,12 +72,85 @@ async function loadNotesFromGithub(env: Env): Promise<void> {
 
   if (!res.ok) {
     console.warn('Could not load notes:', await res.text());
+    notes = [];
     return;
   }
 
   const file = await res.json();
   const content = atob(file.content);
   notes = JSON.parse(content);
+}
+
+// Safer store function with retry on conflict
+async function storeNotesInGithubFile(env: Env, newNote: Note, maxRetries = 3): Promise<void> {
+  const path = `notes.json`;
+  const url = `https://api.github.com/repos/${env.GITHUB_REPO_OWNER}/${env.GITHUB_REPO_NAME}/contents/${path}`;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    // Fetch latest notes + SHA
+    const getRes = await fetch(url, {
+      headers: {
+        Authorization: `token ${env.GITHUB_TOKEN}`,
+        'User-Agent': 'MyNotesApp/1.0',
+      },
+    });
+
+    let notesArray: Note[] = [];
+    let sha: string | undefined;
+
+    if (getRes.ok) {
+      const file = await getRes.json();
+      sha = file.sha;
+      const content = atob(file.content);
+      notesArray = JSON.parse(content);
+    } else if (getRes.status === 404) {
+      // File doesn't exist yet
+      notesArray = [];
+      sha = undefined;
+    } else {
+      const errText = await getRes.text();
+      throw new Error(`GitHub get error: ${errText}`);
+    }
+
+    // Append the new note to the existing array
+    notesArray.push(newNote);
+
+    // Encode content to base64
+    const encodedContent = btoa(JSON.stringify(notesArray, null, 2));
+
+    // Try to update/create file
+    const putRes = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        Authorization: `token ${env.GITHUB_TOKEN}`,
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'MyNotesApp/1.0',
+      },
+      body: JSON.stringify({
+        message: 'Add new note',
+        content: encodedContent,
+        branch: env.GITHUB_BRANCH,
+        ...(sha && { sha }),
+      }),
+    });
+
+    if (putRes.ok) {
+      // Success: update in-memory notes to match new state
+      notes = notesArray;
+      return;
+    } else {
+      const text = await putRes.text();
+      // 409 = conflict; retry
+      if (putRes.status === 409) {
+        console.warn(`GitHub conflict on attempt ${attempt + 1}, retrying...`);
+        // Retry next loop iteration to get fresh SHA + data
+        continue;
+      }
+      throw new Error(`GitHub put error: ${text}`);
+    }
+  }
+
+  throw new Error(`Failed to update notes after ${maxRetries} attempts due to conflicts.`);
 }
 
 function renderHTML(noteList: Note[], sortOrder: 'asc' | 'desc' = 'desc'): string {
@@ -209,10 +242,8 @@ router.post('/notes', async (request, env) => {
     createdAt: new Date().toISOString(),
   };
 
-  notes.push(note);
-
   try {
-    await storeNotesInGithubFile(env, notes);
+    await storeNotesInGithubFile(env, note);
     return Response.redirect(new URL('/', request.url).toString());
   } catch (err) {
     return new Response(`GitHub error: ${(err as Error).message}`, { status: 500 });

@@ -5,6 +5,7 @@ export interface Env {
   GITHUB_REPO_OWNER: string;
   GITHUB_REPO_NAME: string;
   GITHUB_BRANCH: string;
+  NOTES_POST_PASSWORD: string;  // Added env var for password protection
 }
 
 interface Note {
@@ -71,6 +72,7 @@ async function storeNoteGithub(env: Env, id: string, title: string, content: str
     headers: {
       Authorization: `token ${env.GITHUB_TOKEN}`,
       Accept: 'application/vnd.github.v3+json',
+      'User-Agent': 'MyNotesApp/1.0', // Added User-Agent header
     },
     body: JSON.stringify({
       message: `Add note: ${id}`,
@@ -91,6 +93,7 @@ async function loadNotesFromGithub(env: Env): Promise<void> {
   const res = await fetch(url, {
     headers: {
       Authorization: `token ${env.GITHUB_TOKEN}`,
+      'User-Agent': 'MyNotesApp/1.0',  // Added User-Agent header
     },
   });
   if (!res.ok) {
@@ -145,6 +148,7 @@ function renderHTML(noteList: Note[], sortOrder: 'asc' | 'desc' = 'desc'): strin
     <body>
       <h1>Notes</h1>
       <form method="POST" action="/notes">
+        <input type="password" name="password" placeholder="Password" required><br><br>
         <input type="text" name="title" placeholder="Title" required><br><br>
         <textarea name="content" rows="4" cols="50" placeholder="Write your note..." required></textarea><br>
         <button type="submit">Save Note</button>
@@ -168,8 +172,14 @@ router.get('/', async (request, env) => {
 
 router.post('/notes', async (request, env) => {
   const formData = await request.formData();
+  const password = formData.get('password');
   let title = formData.get('title');
   let content = formData.get('content');
+
+  // Check password
+  if (typeof password !== 'string' || password !== env.NOTES_POST_PASSWORD) {
+    return new Response('Unauthorized: Invalid password', { status: 401 });
+  }
 
   if (typeof content !== 'string' || content.trim() === '') {
     return new Response('Content is required', { status: 400 });
@@ -247,7 +257,6 @@ router.post('/filter', async (request) => {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    // Load notes from GitHub on cold start
     if (notes.length === 0) {
       await loadNotesFromGithub(env);
     }

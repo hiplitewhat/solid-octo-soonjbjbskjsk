@@ -1,4 +1,4 @@
-import { Router } from 'https://esm.sh/itty-router@2.4.6';
+import { Router } from 'itty-router';
 
 export interface Env {
   GITHUB_TOKEN: string;

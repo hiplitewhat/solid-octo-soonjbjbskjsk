@@ -17,7 +17,6 @@ interface Note {
 
 const router = Router();
 let notes: Note[] = [];
-let notesLoaded = false;
 
 const isRobloxScript = (content: string) =>
   content.includes('game') || content.includes('script');
@@ -97,8 +96,6 @@ async function storeNotesInGithubFile(env: Env, updatedNotes: Note[]) {
 }
 
 async function loadNotesFromGithub(env: Env): Promise<void> {
-  if (notesLoaded) return;
-
   const url = `https://api.github.com/repos/${env.GITHUB_REPO_OWNER}/${env.GITHUB_REPO_NAME}/contents/notes.json`;
   const res = await fetch(url, {
     headers: {
@@ -115,9 +112,87 @@ async function loadNotesFromGithub(env: Env): Promise<void> {
       id,
       ...note,
     }));
-    notesLoaded = true;
   }
 }
+
+// Serve frontend HTML
+const htmlPage = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Notes App</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; }
+    input, textarea { display: block; width: 100%; margin-bottom: 1rem; padding: 0.5rem; }
+    button { padding: 0.5rem 1rem; }
+    .note { border: 1px solid #ccc; padding: 1rem; margin-bottom: 1rem; border-radius: 5px; }
+    .note h3 { margin: 0 0 0.5rem 0; }
+    .note small { color: #555; }
+  </style>
+</head>
+<body>
+  <h1>Notes</h1>
+
+  <form id="note-form">
+    <input type="text" id="title" placeholder="Note Title" required />
+    <textarea id="content" placeholder="Note Content" rows="5" required></textarea>
+    <input type="password" id="password" placeholder="Post Password" required />
+    <button type="submit">Submit Note</button>
+  </form>
+
+  <hr />
+
+  <div id="notes"></div>
+
+  <script>
+    const API_URL = '/notes';
+
+    async function fetchNotes() {
+      const res = await fetch(API_URL);
+      const notes = await res.json();
+      const notesContainer = document.getElementById('notes');
+      notesContainer.innerHTML = '';
+
+      for (const note of notes) {
+        const div = document.createElement('div');
+        div.className = 'note';
+        div.innerHTML = \`
+          <h3>\${note.title}</h3>
+          <p>\${note.content}</p>
+          <small>\${new Date(note.createdAt).toLocaleString()}</small>
+        \`;
+        notesContainer.appendChild(div);
+      }
+    }
+
+    document.getElementById('note-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const title = document.getElementById('title').value;
+      const content = document.getElementById('content').value;
+      const password = document.getElementById('password').value;
+
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content, password }),
+      });
+
+      if (res.ok) {
+        alert('Note posted!');
+        document.getElementById('note-form').reset();
+        fetchNotes();
+      } else {
+        alert('Failed to post note: ' + await res.text());
+      }
+    });
+
+    fetchNotes();
+  </script>
+</body>
+</html>
+`;
 
 // Routes
 
@@ -158,18 +233,17 @@ router.post('/notes', async (req, env: Env) => {
   });
 });
 
-// Optional: Manual reload route (dev use)
-router.get('/reload', async (_, env: Env) => {
-  notesLoaded = false;
-  await loadNotesFromGithub(env);
-  return new Response('Notes reloaded from GitHub.', { status: 200 });
+// Serve frontend HTML at root
+router.get('/', () => {
+  return new Response(htmlPage, {
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  });
 });
 
 // Required fetch handler
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    await loadNotesFromGithub(env);
-    const res = await router.handle(request, env, ctx);
-    return res ?? new Response('Not found', { status: 404 });
+    await loadNotesFromGithub(env); // optional: load notes on every request
+    return router.handle(request, env, ctx);
   },
 };

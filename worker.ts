@@ -115,93 +115,162 @@ async function loadNotesFromGithub(env: Env): Promise<void> {
   }
 }
 
-// Serve frontend HTML
-const htmlPage = `
-<!DOCTYPE html>
+// Dashboard HTML with submission form
+function renderDashboard(notes: Note[]) {
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Notes App</title>
+  <title>Notes Dashboard</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 2rem; }
-    input, textarea { display: block; width: 100%; margin-bottom: 1rem; padding: 0.5rem; }
-    button { padding: 0.5rem 1rem; }
-    .note { border: 1px solid #ccc; padding: 1rem; margin-bottom: 1rem; border-radius: 5px; }
-    .note h3 { margin: 0 0 0.5rem 0; }
-    .note small { color: #555; }
+    body { font-family: Arial, sans-serif; margin: 2rem; max-width: 700px; }
+    ul { list-style: none; padding: 0; }
+    li { margin-bottom: 0.5rem; }
+    a { text-decoration: none; color: #0366d6; }
+    a:hover { text-decoration: underline; }
+    form { margin-top: 2rem; }
+    label { display: block; margin-top: 1rem; }
+    input[type="text"], textarea, input[type="password"] {
+      width: 100%;
+      padding: 0.5rem;
+      margin-top: 0.25rem;
+      box-sizing: border-box;
+      font-family: inherit;
+      font-size: 1rem;
+    }
+    button {
+      margin-top: 1rem;
+      padding: 0.5rem 1rem;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    #message {
+      margin-top: 1rem;
+      color: green;
+    }
+    #error {
+      margin-top: 1rem;
+      color: red;
+    }
   </style>
 </head>
 <body>
-  <h1>Notes</h1>
+  <h1>Notes Dashboard</h1>
+  <ul>
+    ${notes.map(note => `<li><a href="/note/${note.id}">${escapeHtml(note.title)}</a></li>`).join('\n')}
+  </ul>
 
-  <form id="note-form">
-    <input type="text" id="title" placeholder="Note Title" required />
-    <textarea id="content" placeholder="Note Content" rows="5" required></textarea>
-    <input type="password" id="password" placeholder="Post Password" required />
-    <button type="submit">Submit Note</button>
+  <h2>Add a New Note</h2>
+  <form id="noteForm">
+    <label for="title">Title</label>
+    <input type="text" id="title" name="title" required />
+
+    <label for="content">Content</label>
+    <textarea id="content" name="content" rows="6" required></textarea>
+
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" required />
+
+    <button type="submit">Add Note</button>
   </form>
 
-  <hr />
-
-  <div id="notes"></div>
+  <div id="message"></div>
+  <div id="error"></div>
 
   <script>
-    const API_URL = '/notes';
+    const form = document.getElementById('noteForm');
+    const messageEl = document.getElementById('message');
+    const errorEl = document.getElementById('error');
 
-    async function fetchNotes() {
-      const res = await fetch(API_URL);
-      const notes = await res.json();
-      const notesContainer = document.getElementById('notes');
-      notesContainer.innerHTML = '';
-
-      for (const note of notes) {
-        const div = document.createElement('div');
-        div.className = 'note';
-        div.innerHTML = \`
-          <h3>\${note.title}</h3>
-          <p>\${note.content}</p>
-          <small>\${new Date(note.createdAt).toLocaleString()}</small>
-        \`;
-        notesContainer.appendChild(div);
-      }
-    }
-
-    document.getElementById('note-form').addEventListener('submit', async (e) => {
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const title = document.getElementById('title').value;
-      const content = document.getElementById('content').value;
-      const password = document.getElementById('password').value;
+      messageEl.textContent = '';
+      errorEl.textContent = '';
 
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, content, password }),
-      });
+      const title = form.title.value.trim();
+      const content = form.content.value.trim();
+      const password = form.password.value;
 
-      if (res.ok) {
-        alert('Note posted!');
-        document.getElementById('note-form').reset();
-        fetchNotes();
-      } else {
-        alert('Failed to post note: ' + await res.text());
+      if (!title || !content || !password) {
+        errorEl.textContent = 'Please fill all fields.';
+        return;
+      }
+
+      try {
+        const res = await fetch('/notes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, content, password }),
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          errorEl.textContent = 'Error: ' + text;
+          return;
+        }
+
+        const newNote = await res.json();
+        messageEl.textContent = 'Note added successfully! Reloading...';
+        setTimeout(() => {
+          window.location.reload();
+        }, 1000);
+
+      } catch (err) {
+        errorEl.textContent = 'Network error. Try again.';
       }
     });
-
-    fetchNotes();
   </script>
 </body>
-</html>
-`;
+</html>`;
+}
 
-// Routes
+// Single note HTML page
+function renderNotePage(note: Note) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(note.title)}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; max-width: 700px; }
+    pre { white-space: pre-wrap; background: #f6f8fa; padding: 1rem; border-radius: 5px; }
+    a { display: inline-block; margin-bottom: 1rem; color: #0366d6; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <a href="/">← Back to Dashboard</a>
+  <h1>${escapeHtml(note.title)}</h1>
+  <pre>${escapeHtml(note.content)}</pre>
+  <small>Created at: ${new Date(note.createdAt).toLocaleString()}</small>
+</body>
+</html>`;
+}
 
+// Simple HTML escape helper
+function escapeHtml(text: string) {
+  return text.replace(/[&<>"']/g, (m) => {
+    switch (m) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      case "'": return '&#39;';
+      default: return m;
+    }
+  });
+}
+
+// API route returning all notes JSON (optional)
 router.get('/notes', () => {
   return new Response(JSON.stringify(notes), {
     headers: { 'Content-Type': 'application/json' },
   });
 });
 
+// Post new note API
 router.post('/notes', async (req, env: Env) => {
   const body = await req.json();
 
@@ -233,17 +302,30 @@ router.post('/notes', async (req, env: Env) => {
   });
 });
 
-// Serve frontend HTML at root
+// Dashboard route /
 router.get('/', () => {
-  return new Response(htmlPage, {
+  return new Response(renderDashboard(notes), {
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
   });
 });
 
-// Required fetch handler
+// Note detail route /note/:id
+router.get('/note/:id', ({ params }) => {
+  const note = notes.find(n => n.id === params.id);
+  if (!note) {
+    return new Response('Note not found', { status: 404 });
+  }
+  return new Response(renderNotePage(note), {
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  });
+});
+
+// Default 404 handler
+router.all('*', () => new Response('Not Found', { status: 404 }));
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    await loadNotesFromGithub(env); // optional: load notes on every request
+    await loadNotesFromGithub(env);
     return router.handle(request, env, ctx);
   },
 };

@@ -1,0 +1,16 @@
+
+{
+  "name": "my-worker",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "tsc",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "typescript": "^5.1.6",
+    "@cloudflare/workers-types": "^4.20230525.0"
+  },
+  "dependencies": {
+    "itty-router": "^2.4.6"
+  }
+}

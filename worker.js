@@ -1,4 +1,4 @@
-import { Router } from 'itty-router'
+import { Router } from 'https://esm.sh/itty-router@2.4.6';
 
 const router = Router();
 
@@ -6,10 +6,7 @@ const REPO_OWNER = 'hiplitewhat';
 const REPO_NAME = 'a';
 const BRANCH = 'main';
 
-// Helpers
-
 function base64Encode(str) {
-  // TextEncoder + btoa for base64 encoding in Workers
   return btoa(String.fromCharCode(...new TextEncoder().encode(str)));
 }
 
@@ -104,14 +101,12 @@ async function loadNotesFromGithub(env) {
       if (!fileRes.ok) continue;
       const raw = await fileRes.text();
 
-      // Parse title and createdAt
       const lines = raw.split('\n');
       const titleLine = lines.find(l => l.startsWith('Title:')) || 'Title: Untitled';
       const createdAtLine = lines.find(l => l.startsWith('CreatedAt:'));
       const title = titleLine.replace(/^Title:\s*/, '') || 'Untitled';
       const createdAt = createdAtLine ? new Date(createdAtLine.replace(/^CreatedAt:\s*/, '')).toISOString() : new Date().toISOString();
 
-      // Content is after empty line (two line breaks)
       const emptyLineIndex = lines.findIndex(line => line.trim() === '');
       const content = lines.slice(emptyLineIndex + 1).join('\n');
 
@@ -167,7 +162,6 @@ function renderHTML(noteList, sortOrder = 'desc') {
     </html>`;
 }
 
-// Helpers to parse urlencoded form data (POST form submission)
 async function parseFormData(request) {
   const contentType = request.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
@@ -183,8 +177,6 @@ async function parseFormData(request) {
   }
   return {};
 }
-
-// Routes
 
 router.get('/', async (request, env) => {
   const url = new URL(request.url);
@@ -219,11 +211,9 @@ router.post('/notes', async (request, env) => {
   }
 
   const id = crypto.randomUUID();
-  const createdAt = new Date().toISOString();
 
   try {
     await storeNoteGithub(id, title, content, env);
-    // Redirect to home page
     return new Response(null, {
       status: 303,
       headers: { Location: '/' }

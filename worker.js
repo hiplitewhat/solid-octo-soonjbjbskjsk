@@ -58,6 +58,39 @@ function isRobloxScript(content) {
   return content.includes('game') || content.includes('script');
 }
 
+async function filterText(text) {
+  try {
+    const res = await fetch('https://tiny-river-0235.hiplitehehe.workers.dev/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+
+    const contentType = res.headers.get('content-type') || '';
+    const raw = await res.text();
+
+    console.log('filterText response status:', res.status);
+    console.log('filterText content-type:', contentType);
+    console.log('filterText raw response:', raw);
+
+    if (!res.ok) {
+      console.warn('Filter API returned error status');
+      return text;
+    }
+
+    if (!contentType.includes('application/json')) {
+      console.warn('Filter API did not return JSON');
+      return text;
+    }
+
+    const data = JSON.parse(raw);
+    return data.filtered || text;
+  } catch (e) {
+    console.error('filterText error:', e);
+    return text;
+  }
+}
+
 async function obfuscate(content) {
   try {
     const res = await fetch('https://broken-pine-ac7f.hiplitehehe.workers.dev/api/obfuscate', {
@@ -65,21 +98,30 @@ async function obfuscate(content) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ script: content })
     });
-    const data = await res.json();
+
+    const contentType = res.headers.get('content-type') || '';
+    const raw = await res.text();
+
+    console.log('obfuscate response status:', res.status);
+    console.log('obfuscate content-type:', contentType);
+    console.log('obfuscate raw response:', raw);
+
+    if (!res.ok) {
+      console.warn('Obfuscate API returned error status');
+      return content;
+    }
+
+    if (!contentType.includes('application/json')) {
+      console.warn('Obfuscate API did not return JSON');
+      return content;
+    }
+
+    const data = JSON.parse(raw);
     return data.obfuscated || content;
   } catch (e) {
+    console.error('obfuscate error:', e);
     return content;
   }
-}
-
-async function filterText(text) {
-  const res = await fetch('https://tiny-river-0235.hiplitehehe.workers.dev/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text })
-  });
-  const data = await res.json();
-  return data.filtered || text;
 }
 
 async function storeNoteGithub(id, title, content, env) {

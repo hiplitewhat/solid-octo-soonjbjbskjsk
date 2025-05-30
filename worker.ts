@@ -60,7 +60,7 @@ function isRobloxScript(content) {
 
 async function obfuscate(content) {
   try {
-    const res = await fetch('https://comfortable-starfish-46.deno.dev/api/obfuscate', {
+    const res = await fetch('https://broken-pine-ac7f.hiplitehehe.workers.dev/api/obfuscate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ script: content })
@@ -73,7 +73,7 @@ async function obfuscate(content) {
 }
 
 async function filterText(text) {
-  const res = await fetch('https://jagged-chalk-feet.glitch.me/filter', {
+  const res = await fetch('https://tiny-river-0235.hiplitehehe.workers.dev/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text })

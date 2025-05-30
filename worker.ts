@@ -1,195 +1,148 @@
-interface Env {
-  GITHUB_TOKEN: string;
-  DISCORD_WEBHOOK_URL_APTOIDE: string;
-  DISCORD_WEBHOOK_URL_APTOIDE_VNG: string;
-  GITHUB_REPO_OWNER: string;
-  GITHUB_REPO_NAME: string;
-  VERSION_FILE_PATH: string;
-  GITHUB_BRANCH: string;
-}
+export default {
+  async fetch(req, env, ctx) {
+    const url = new URL(req.url);
+    const { pathname, searchParams } = url;
 
-async function getAptoideVersions(): Promise<{ aptoideVersion: string; aptoideVngVersion: string }> {
-  const fetchVersion = async (url: string): Promise<string> => {
-    try {
-      const res = await fetch(url, {
-        headers: { "User-Agent": "Mozilla/5.0" },
-      });
-      const html = await res.text();
-      const match = html.match(/(\d+\.\d+\.\d+(?:\.\d+)?)/);
-      return match?.[1]?.trim() || "Unknown";
-    } catch {
-      return "Unknown";
+    if (req.method === 'GET' && pathname === '/') {
+      const notes = await listNotesFromGithub(env);
+      const html = renderHTML(notes, searchParams.get('sort') || 'desc');
+      return new Response(html, { headers: { 'Content-Type': 'text/html' } });
     }
-  };
 
-  const aptoideVersion = await fetchVersion("https://roblox.en.aptoide.com/app");
-  const aptoideVngVersion = await fetchVersion("https://roblox-vng.en.aptoide.com/app");
+    if (req.method === 'POST' && pathname === '/notes') {
+      const formData = await req.formData();
+      let title = formData.get('title') || 'Untitled';
+      let content = formData.get('content');
 
-  return { aptoideVersion, aptoideVngVersion };
+      if (!content) return new Response('Content is required', { status: 400 });
+
+      try {
+        title = await filterText(title);
+        content = await filterText(content);
+      } catch (e) {
+        console.warn('Filter failed, using raw inputs.');
+      }
+
+      if (isRobloxScript(content)) {
+        content = await obfuscate(content);
+      }
+
+      const id = crypto.randomUUID();
+      await storeNoteGithub(id, title, content, env);
+      return Response.redirect('/', 302);
+    }
+
+    if (req.method === 'GET' && pathname.startsWith('/notes/')) {
+      const id = pathname.split('/notes/')[1];
+      const ua = req.headers.get('user-agent') || '';
+      if (!ua.includes('Roblox')) return new Response('Access denied', { status: 403 });
+
+      const notes = await listNotesFromGithub(env);
+      const note = notes.find(n => n.id === id);
+      if (!note) return new Response('Not found', { status: 404 });
+      return new Response(note.content, { headers: { 'Content-Type': 'text/plain' } });
+    }
+
+    return new Response('Not found', { status: 404 });
+  }
+};
+
+function isRobloxScript(content) {
+  return content.includes('game') || content.includes('script');
 }
 
-async function getGitVersion(): Promise<{ aptoideVersion: string; aptoideVngVersion: string; sha: string }> {
-  const url = `https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/contents/${VERSION_FILE_PATH}?ref=${GITHUB_BRANCH}`;
+async function obfuscate(content) {
+  try {
+    const res = await fetch('https://comfortable-starfish-46.deno.dev/api/obfuscate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ script: content })
+    });
+    const data = await res.json();
+    return data.obfuscated || content;
+  } catch (e) {
+    return content;
+  }
+}
 
-  const res = await fetch(url, {
+async function filterText(text) {
+  const res = await fetch('https://jagged-chalk-feet.glitch.me/filter', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text })
+  });
+  const data = await res.json();
+  return data.filtered || text;
+}
+
+async function storeNoteGithub(id, title, content, env) {
+  const path = `notes/${id}.txt`;
+  const body = `Title: ${title}\n\n${content}`;
+  const encoded = btoa(unescape(encodeURIComponent(body)));
+
+  await fetch(`https://api.github.com/repos/${env.REPO_OWNER}/${env.REPO_NAME}/contents/${path}`, {
+    method: 'PUT',
     headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      "User-Agent": "AptoideMonitor/1.0",
+      Authorization: `token ${env.GITHUB_TOKEN}`,
+      Accept: 'application/vnd.github.v3+json'
     },
+    body: JSON.stringify({
+      message: `Add note: ${id}`,
+      content: encoded,
+      branch: env.BRANCH
+    })
+  });
+}
+
+async function listNotesFromGithub(env) {
+  const res = await fetch(`https://api.github.com/repos/${env.REPO_OWNER}/${env.REPO_NAME}/contents/notes?ref=${env.BRANCH}`, {
+    headers: { Authorization: `token ${env.GITHUB_TOKEN}` }
   });
 
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`Failed to fetch version.txt from GitHub: ${res.status} - ${errorText}`);
+  const files = await res.json();
+  const notes = [];
+
+  for (const file of files) {
+    if (file.name.endsWith('.txt')) {
+      const fileRes = await fetch(file.download_url);
+      const raw = await fileRes.text();
+      const [titleLine, , ...rest] = raw.split('\n');
+      const title = titleLine.replace(/^Title:\s*/, '') || 'Untitled';
+      notes.push({
+        id: file.name.replace('.txt', ''),
+        title,
+        content: rest.join('\n'),
+        createdAt: new Date().toISOString()
+      });
+    }
   }
 
-  const json = await res.json();
-  const content = atob(json.content);
+  return notes;
+}
 
-  const versions = content.split("\n").reduce(
-    (acc: { aptoideVersion: string; aptoideVngVersion: string }, line) => {
-      const [key, value] = line.split(":");
-      if (key && value) {
-        if (key.includes("Aptoide VNG")) acc.aptoideVngVersion = value.trim();
-        else if (key.includes("Aptoide")) acc.aptoideVersion = value.trim();
-      }
-      return acc;
-    },
-    { aptoideVersion: "Unknown", aptoideVngVersion: "Unknown" }
+function renderHTML(notes, sortOrder = 'desc') {
+  const sorted = notes.sort((a, b) =>
+    sortOrder === 'desc'
+      ? new Date(b.createdAt) - new Date(a.createdAt)
+      : new Date(a.createdAt) - new Date(b.createdAt)
   );
 
-  return { ...versions, sha: json.sha };
+  const list = sorted.map(note =>
+    `<div><strong><a href="/notes/${note.id}" target="_blank">${note.title}</a></strong> (ID: ${note.id})</div>`
+  ).join('');
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head><title>Notes</title></head>
+    <body>
+      <form method="POST" action="/notes">
+        <input name="title" placeholder="Title" required><br>
+        <textarea name="content" rows="5" required></textarea><br>
+        <button>Save</button>
+      </form>
+      <hr>
+      ${list}
+    </body>
+    </html>`;
 }
-
-async function updateGitVersion(
-  newAptoideVersion: string,
-  newAptoideVngVersion: string,
-  sha: string
-) {
-  const url = `https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/contents/${VERSION_FILE_PATH}`;
-  const content = `Aptoide Version: ${newAptoideVersion}\nAptoide VNG Version: ${newAptoideVngVersion}\n`;
-
-  const body = {
-    message: `Update versions to Aptoide: ${newAptoideVersion}, Aptoide VNG: ${newAptoideVngVersion}`,
-    content: btoa(content),
-    sha,
-    branch: GITHUB_BRANCH,
-  };
-
-  let res = await fetch(url, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      "Content-Type": "application/json",
-      "User-Agent": "AptoideMonitor/1.0",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (res.status === 409) {
-    const retry = await getGitVersion();
-    body.sha = retry.sha;
-    res = await fetch(url, {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
-        "Content-Type": "application/json",
-        "User-Agent": "AptoideMonitor/1.0",
-      },
-      body: JSON.stringify(body),
-    });
-  }
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Failed to update version.txt: ${res.status} - ${text}`);
-  }
-}
-
-async function sendDiscord(
-  version: string,
-  oldVersion: string,
-  webhookUrl: string
-) {
-  const embed = {
-    title: "Roblox Android Version Updated!",
-    color: 0x00ff00,
-    fields: [
-      { name: "New Version", value: `\`${version}\``, inline: true },
-      { name: "Old Version", value: `\`${oldVersion}\``, inline: true },
-    ],
-    timestamp: new Date().toISOString(),
-    footer: { text: "m" },
-  };
-
-  await fetch(webhookUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      content: "New Roblox update detected!",
-      embeds: [embed],
-    }),
-  });
-}
-
-async function handleRequest(): Promise<Response> {
-  try {
-    const { aptoideVersion, aptoideVngVersion } = await getAptoideVersions();
-    const {
-      aptoideVersion: gitAptoideVersion,
-      aptoideVngVersion: gitAptoideVngVersion,
-      sha,
-    } = await getGitVersion();
-
-    let updated = false;
-
-    const aptoideWebhookUrl = DISCORD_WEBHOOK_URL_APTOIDE;
-    const aptoideVngWebhookUrl = DISCORD_WEBHOOK_URL_APTOIDE_VNG;
-
-    if (
-      aptoideVersion !== "Unknown" &&
-      aptoideVersion !== gitAptoideVersion
-    ) {
-      await sendDiscord(
-        aptoideVersion,
-        gitAptoideVersion !== "Unknown" ? gitAptoideVersion : "Unavailable",
-        aptoideWebhookUrl
-      );
-      updated = true;
-    }
-
-    if (
-      aptoideVngVersion !== "Unknown" &&
-      aptoideVngVersion !== gitAptoideVngVersion
-    ) {
-      await sendDiscord(
-        aptoideVngVersion,
-        gitAptoideVngVersion !== "Unknown" ? gitAptoideVngVersion : "Unavailable",
-        aptoideVngWebhookUrl
-      );
-      updated = true;
-    }
-
-    const finalAptoide = aptoideVersion !== "Unknown" ? aptoideVersion : gitAptoideVersion;
-    const finalVng = aptoideVngVersion !== "Unknown" ? aptoideVngVersion : gitAptoideVngVersion;
-
-    if (updated) {
-      await updateGitVersion(finalAptoide, finalVng, sha);
-      return new Response(
-        `Updated versions: Aptoide ${finalAptoide}, VNG ${finalVng}`,
-        { status: 200 }
-      );
-    }
-
-    return new Response(
-      `No update. Current versions: Aptoide ${gitAptoideVersion}, VNG ${gitAptoideVngVersion}`,
-      { status: 200 }
-    );
-  } catch (err: any) {
-    return new Response(`Error: ${err.message}`, { status: 500 });
-  }
-}
-
-addEventListener("fetch", (event) => {
-  event.respondWith(handleRequest());
-});

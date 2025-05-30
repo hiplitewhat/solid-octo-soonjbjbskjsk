@@ -89,7 +89,6 @@ export default {
   }
 };
 
-// Pass debug function into helpers to log inside them:
 async function filterText(text, debug = () => {}) {
   try {
     debug('Calling filter API with text:', text);
@@ -158,7 +157,8 @@ async function storeNoteGithub(id, title, content, env, debug = () => {}) {
     method: 'PUT',
     headers: {
       Authorization: `token ${env.GITHUB_TOKEN}`,
-      Accept: 'application/vnd.github.v3+json'
+      Accept: 'application/vnd.github.v3+json',
+      'User-Agent': 'MyNoteAppWorker/1.0'  // Added User-Agent
     },
     body: JSON.stringify({
       message: `Add note: ${id}`,
@@ -178,7 +178,10 @@ async function storeNoteGithub(id, title, content, env, debug = () => {}) {
 async function listNotesFromGithub(env, debug = () => {}) {
   debug('Listing notes from GitHub...');
   const res = await fetch(`https://api.github.com/repos/${env.REPO_OWNER}/${env.REPO_NAME}/contents/notes?ref=${env.BRANCH}`, {
-    headers: { Authorization: `token ${env.GITHUB_TOKEN}` }
+    headers: {
+      Authorization: `token ${env.GITHUB_TOKEN}`,
+      'User-Agent': 'MyNoteAppWorker/1.0'  // Added User-Agent
+    }
   });
 
   debug('GitHub API response status:', res.status);
@@ -202,7 +205,7 @@ async function listNotesFromGithub(env, debug = () => {}) {
         id: file.name.replace('.txt', ''),
         title,
         content: rest.join('\n'),
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString()  // Placeholder timestamp
       });
     }
   }
@@ -222,7 +225,6 @@ function renderHTML(notes, sortOrder = 'desc', debugLogs = []) {
     `<div><strong><a href="/notes/${note.id}" target="_blank">${note.title}</a></strong> (ID: ${note.id})</div>`
   ).join('');
 
-  // Add debug logs at the bottom of the page inside a <pre> for readability
   const debugHtml = debugLogs.length
     ? `<hr><h3>Debug logs:</h3><pre style="background:#eee; padding:10px; max-height:200px; overflow:auto;">${debugLogs.join('\n')}</pre>`
     : '';

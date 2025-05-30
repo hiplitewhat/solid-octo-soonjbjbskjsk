@@ -11,6 +11,13 @@ export default {
 
     if (req.method === 'POST' && pathname === '/notes') {
       const formData = await req.formData();
+      const password = formData.get('password');
+
+      // Password check
+      if (password !== env.NOTE_PASSWORD) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+
       let title = formData.get('title') || 'Untitled';
       let content = formData.get('content');
 
@@ -139,6 +146,7 @@ function renderHTML(notes, sortOrder = 'desc') {
       <form method="POST" action="/notes">
         <input name="title" placeholder="Title" required><br>
         <textarea name="content" rows="5" required></textarea><br>
+        <input type="password" name="password" placeholder="Password" required><br>
         <button>Save</button>
       </form>
       <hr>

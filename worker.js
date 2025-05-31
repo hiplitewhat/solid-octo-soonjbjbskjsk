@@ -48,6 +48,7 @@ export default {
         if (isRobloxScript(content)) {
           debug('Detected Roblox script, obfuscating...');
           content = await obfuscate(content, debug);
+          debug('Final obfuscated content:', content);
         }
 
         const id = crypto.randomUUID();
@@ -140,6 +141,7 @@ async function obfuscate(content, debug = () => {}) {
     }
 
     const data = JSON.parse(raw);
+    debug('Obfuscated result:', data.obfuscated);
     return data.obfuscated || content;
   } catch (e) {
     debug('obfuscate error:', e.message);
@@ -205,7 +207,7 @@ async function listNotesFromGithub(env, debug = () => {}) {
         id: file.name.replace('.txt', ''),
         title,
         content: rest.join('\n'),
-        createdAt: new Date().toISOString()  // Placeholder timestamp
+        createdAt: new Date().toISOString()
       });
     }
   }
@@ -247,8 +249,8 @@ function renderHTML(notes, sortOrder = 'desc', debugLogs = []) {
     </html>`;
 }
 
-// ✅ New function added here
 function isRobloxScript(content) {
-  const keywords = ['game:', 'workspace', 'Instance.new', 'Vector3', 'CFrame', 'Players', 'LocalPlayer', 'script', 'function'];
-  return keywords.some(keyword => content.includes(keyword));
+  const lc = content.toLowerCase();
+  const keywords = ['game:', 'workspace', 'instance.new', 'vector3', 'cframe', 'players', 'localplayer', 'script', 'function'];
+  return keywords.some(keyword => lc.includes(keyword));
 }

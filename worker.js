@@ -55,7 +55,7 @@ export default {
 
         await storeNoteGithub(id, title, content, env, debug);
         debug('Stored note to GitHub');
-        return Response.redirect('/', 302);
+        return Response.redirect(req.url.replace(/\/notes$/, '/'), 302);
       }
 
       if (req.method === 'GET' && pathname.startsWith('/notes/')) {

@@ -158,7 +158,7 @@ async function storeNoteGithub(id, title, content, env, debug = () => {}) {
     headers: {
       Authorization: `token ${env.GITHUB_TOKEN}`,
       Accept: 'application/vnd.github.v3+json',
-      'User-Agent': 'MyNoteAppWorker/1.0'  // Added User-Agent
+      'User-Agent': 'MyNoteAppWorker/1.0'
     },
     body: JSON.stringify({
       message: `Add note: ${id}`,
@@ -180,7 +180,7 @@ async function listNotesFromGithub(env, debug = () => {}) {
   const res = await fetch(`https://api.github.com/repos/${env.REPO_OWNER}/${env.REPO_NAME}/contents/notes?ref=${env.BRANCH}`, {
     headers: {
       Authorization: `token ${env.GITHUB_TOKEN}`,
-      'User-Agent': 'MyNoteAppWorker/1.0'  // Added User-Agent
+      'User-Agent': 'MyNoteAppWorker/1.0'
     }
   });
 
@@ -245,4 +245,10 @@ function renderHTML(notes, sortOrder = 'desc', debugLogs = []) {
       ${debugHtml}
     </body>
     </html>`;
+}
+
+// ✅ New function added here
+function isRobloxScript(content) {
+  const keywords = ['game:', 'workspace', 'Instance.new', 'Vector3', 'CFrame', 'Players', 'LocalPlayer', 'script', 'function'];
+  return keywords.some(keyword => content.includes(keyword));
 }

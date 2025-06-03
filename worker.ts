@@ -23,7 +23,7 @@ async function getAptoideVersions(): Promise<{ aptoideVersion: string; aptoideVn
   };
 
   const aptoideVersion = await fetchVersion("https://roblox.en.aptoide.com/app");
-  const aptoideVngVersion = await fetchVersion("https://roblox-vng.en.aptoide.com/app");
+  const aptoideVngVersion = await fetchVersion("https://apkpure.com/roblox-vng/com.roblox.client.vnggames"); 
 
   return { aptoideVersion, aptoideVngVersion };
 }
